@@ -4,9 +4,9 @@
 Reach is a smart commute assistant built with **Flutter**. It calculates exactly when you need to leave based on traffic and notifies you with "Pack Up" and "Leave Now" alerts so you are never late.
 
 <p align="center">
-  <img src="screenshots/home_screenshot.png" width="250" alt="Home Screen">
+  <img src="screenshots/home_screenshot.jpeg" width="250" alt="Home Screen">
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="screenshots/add-commute_screenshot.png" width="250" alt="Add Commute Screen">
+  <img src="screenshots/add-commute_screenshot.jpeg" width="250" alt="Add Commute Screen">
 </p>
 
 ## ✨ Features
