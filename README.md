@@ -1,16 +1,38 @@
-# reach
+# Reach 📍
+**Never miss your commute again.**
 
-A new Flutter project.
+Reach is a smart commute assistant built with **Flutter**. It calculates exactly when you need to leave based on traffic and notifies you with "Pack Up" and "Leave Now" alerts so you are never late.
 
-## Getting Started
+<p align="center">
+  <img src="screenshots/home_screenshot.png" width="250" alt="Home Screen">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="screenshots/add-commute_screenshot.png" width="250" alt="Add Commute Screen">
+</p>
 
-This project is a starting point for a Flutter application.
+## ✨ Features
+* **🚗 Smart Calculations:** Automatically calculates "Leave Time" based on traffic duration.
+* **🔔 Intelligent Notifications:**
+    * *Pack Up Reminder:* 15 minutes before departure.
+    * *Leave Now Alarm:* Urgent alert when it's time to go.
+* **🌙 Modern UI:** Full Dark Mode support with high-contrast Orange accents (High-Vis style).
+* **💾 Local Storage:** Persists data using `shared_preferences` so data is never lost.
+* **🗺️ Live Navigation:** One-tap integration with Google Maps.
 
-A few resources to get you started if this is your first Flutter project:
+## 🛠️ Tech Stack
+* **Framework:** Flutter & Dart
+* **State Management:** `setState` (Optimized for performance)
+* **Local Storage:** `shared_preferences`
+* **Notifications:** `flutter_local_notifications`
+* **Navigation:** `url_launcher` (Deep linking to Maps)
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## 📥 Download
+You can download the latest Android APK from the [Releases Page](https://github.com/Sparsh5126/Reach/releases).
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 🚀 Getting Started
+1. Clone the repo:
+   ```bash
+   git clone [https://github.com/Sparsh5126/Reach.git](https://github.com/Sparsh5126/Reach.git)
+2. Install dependencies:
+   flutter pub get
+3. Run the app:
+   flutter run
