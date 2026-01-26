@@ -40,7 +40,7 @@
 
 ## 🚀 Installation
 
-1.  **Download**: Grab the latest APK from the [Releases](https://github.com/Sparsh5126/Reach./releases) section.
+1.  **Download**: Grab the latest APK from the [Releases](https://github.com/Sparsh5126/Reach/releases) section.
 2.  **Permissions**: Grant "Alarms & Reminders" when prompted to enable exact scheduling.
 
 ---
