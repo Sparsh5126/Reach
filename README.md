@@ -18,6 +18,19 @@
   <i>Dashboard &nbsp; | &nbsp; Train Mode &nbsp; | &nbsp; Car Mode &nbsp; | &nbsp; Flight Pickup</i>
 </p>
 
+---
+
+## 🕹️ How to Interact
+
+To keep the interface clean and minimal, **Reach.** utilizes intuitive gestures for navigation and management:
+
+* **Single Tap**: Tap any commute card to instantly launch Google Maps navigation to that destination.
+* **Double Tap**: Double tap a card to open the "Edit" menu and adjust your arrival time or travel mode.
+* **Swipe Left**: Swipe a commute card to the left to delete it from your schedule.
+* **Add New**: Use the orange "Add New" button in the bottom navigation bar to search for a new destination.
+
+---
+
 ## 🧠 Key Features in v2.0
 
 * **Dynamic Traffic Engine**: Integrates with the **OSRM API** to calculate real-world travel duration based on live traffic between coordinates.
