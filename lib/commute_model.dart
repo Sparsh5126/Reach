@@ -1,58 +1,40 @@
-import 'dart:convert';
-
 class Commute {
-  final String id;
-  final String destination;
-  final String arrivalTime;
-  final List<String> days;
-  final int durationMinutes;
-  final String transportMode;
-  final double? latitude;
-  final double? longitude;
+  final String title;
+  final String time; 
+  final String mode;
+  final List<String> days; 
+  final double lat;
+  final double lon;
 
   Commute({
-    required this.id,
-    required this.destination,
-    required this.arrivalTime,
+    required this.title,
+    required this.time,
+    required this.mode,
     required this.days,
-    required this.durationMinutes,
-    required this.transportMode,
-    this.latitude,
-    this.longitude,
+    this.lat = 0.0,
+    this.lon = 0.0,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'destination': destination,
-      'arrivalTime': arrivalTime,
-      'days': days,
-      'durationMinutes': durationMinutes,
-      'transportMode': transportMode,
-      'latitude': latitude,
-      'longitude': longitude,
-    };
+  int get timeInMinutes {
+    final format = RegExp(r'(\d+):(\d+)\s+(AM|PM)');
+    final match = format.firstMatch(time);
+    if (match != null) {
+      int hour = int.parse(match.group(1)!);
+      int minute = int.parse(match.group(2)!);
+      if (match.group(3) == "PM" && hour < 12) hour += 12;
+      if (match.group(3) == "AM" && hour == 12) hour = 0;
+      return hour * 60 + minute;
+    }
+    return 0;
   }
 
-  factory Commute.fromJson(Map<String, dynamic> json) {
-    return Commute(
-      id: json['id'],
-      destination: json['destination'],
-      arrivalTime: json['arrivalTime'],
-      days: List<String>.from(json['days']),
-      durationMinutes: json['durationMinutes'] ?? 30,
-      transportMode: json['transportMode'] ?? 'driving',
-      latitude: json['latitude'],
-      longitude: json['longitude'],
-    );
-  }
+  Map<String, dynamic> toJson() => {
+    'title': title, 'time': time, 'mode': mode, 
+    'days': days, 'lat': lat, 'lon': lon,
+  };
 
-  static String encode(List<Commute> commutes) => json.encode(
-        commutes.map<Map<String, dynamic>>((c) => c.toJson()).toList(),
-      );
-
-  static List<Commute> decode(String commutes) =>
-      (json.decode(commutes) as List<dynamic>)
-          .map<Commute>((item) => Commute.fromJson(item))
-          .toList();
+  factory Commute.fromJson(Map<String, dynamic> json) => Commute(
+    title: json['title'], time: json['time'], mode: json['mode'],
+    days: List<String>.from(json['days']), lat: json['lat'], lon: json['lon'],
+  );
 }
