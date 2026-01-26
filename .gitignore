@@ -6,6 +6,8 @@
 .DS_Store
 .atom/
 .build/
+*.apk
+*.aab
 .buildlog/
 .history
 .svn/
