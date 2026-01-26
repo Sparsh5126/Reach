@@ -1,38 +1,40 @@
 # Reach 📍
 **Never miss your commute again.**
 
-Reach is a smart commute assistant built with **Flutter**. It calculates exactly when you need to leave based on traffic and notifies you with "Pack Up" and "Leave Now" alerts so you are never late.
+**Reach.** is a context-aware alarm application designed to eliminate "late-for-arrival" anxiety. By integrating live traffic and meteorological data, it dynamically calculates your departure time, ensuring you reach your destination on time, every time.
 
-<p align="center">
-  <img src="screenshots/home_screenshot.jpeg" width="250" alt="Home Screen">
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="screenshots/add-commute_screenshot.jpeg" width="250" alt="Add Commute Screen">
-</p>
+---
 
-## ✨ Features
-* **🚗 Smart Calculations:** Automatically calculates "Leave Time" based on traffic duration.
-* **🔔 Intelligent Notifications:**
-    * *Pack Up Reminder:* 15 minutes before departure.
-    * *Leave Now Alarm:* Urgent alert when it's time to go.
-* **🌙 Modern UI:** Full Dark Mode support with high-contrast Orange accents (High-Vis style).
-* **💾 Local Storage:** Persists data using `shared_preferences` so data is never lost.
-* **🗺️ Live Navigation:** One-tap integration with Google Maps.
+## 📱 User Interface
 
-## 🛠️ Tech Stack
-* **Framework:** Flutter & Dart
-* **State Management:** `setState` (Optimized for performance)
-* **Local Storage:** `shared_preferences`
-* **Notifications:** `flutter_local_notifications`
-* **Navigation:** `url_launcher` (Deep linking to Maps)
+| Dashboard | Add Trip | Mode Selection | Trip Alerts |
+| :---: | :---: | :---: | :---: |
+| ![Dashboard](screenshots/home-page.jpeg) | ![Add Trip](screenshots/add-trip-car.jpeg) | ![Flight Mode](screenshots/add-trip-flight.jpeg) | ![Train Mode](screenshots/add-trip.jpeg) |
+| *Smart-sorted schedule* | *Photon Geocoding search* | *Vehicle & Pickup modes* | *High-priority alarms* |
 
-## 📥 Download
-You can download the latest Android APK from the [Releases Page](https://github.com/Sparsh5126/Reach/releases).
+## 🧠 Key Features in v2.0
 
-## 🚀 Getting Started
-1. Clone the repo:
-   ```bash
-   git clone [https://github.com/Sparsh5126/Reach.git](https://github.com/Sparsh5126/Reach.git)
-2. Install dependencies:
-   flutter pub get
-3. Run the app:
-   flutter run
+* **Dynamic Traffic Engine**: Integrates with the **OSRM API** to calculate real-world travel duration based on live traffic between coordinates.
+* **Weather-Aware Logic**: Automatically detects rain via **OpenWeather API** and adds a 15–30 minute safety cushion to the schedule.
+* **Motorcycle Optimization**: Specialized logic for bikers, doubling the rain buffer to account for the increased complexity of riding in inclement weather.
+* **Pickup/Departure Toggle**: Specific modes for trains and flights that include extra buffers for airport/station navigation.
+* **The "Pack" Window**: A custom 10-minute preparation notification triggered before the actual departure alarm.
+* **Exact Alarm Reliability**: Implements Android "Exact Alarm" permissions to ensure alerts trigger precisely, even when the device is idle.
+
+---
+
+## 🛠 Tech Stack
+
+* **Frontend**: Flutter (Dart) with a custom high-contrast dark theme.
+* **APIs**: OSRM (Routing), OpenWeather (Weather), Photon (Geocoding Search).
+* **Storage**: **SharedPreferences** for persistent local schedules.
+* **Notifications**: `flutter_local_notifications` with `fullScreenIntent` for system-level alarms.
+
+---
+
+## 🚀 Installation
+
+1.  **Download**: Grab the latest APK from the [Releases](https://github.com/Sparsh5126/Reach./releases) section.
+2.  **Permissions**: Grant "Alarms & Reminders" when prompted to enable exact scheduling.
+
+---
