@@ -7,9 +7,10 @@
 
 ## 📱 User Interface
 
-| Dashboard | Add Trip | Mode Selection | Trip Alerts |
+| Dashboard | Add Trip | Flight Mode | Train Mode |
 | :---: | :---: | :---: | :---: |
 | ![Dashboard](screenshots/home-page.jpeg) | ![Add Trip](screenshots/add-trip-car.jpeg) | ![Flight Mode](screenshots/add-trip-flight.jpeg) | ![Train Mode](screenshots/add-trip.jpeg) |
+
 | *Smart-sorted schedule* | *Photon Geocoding search* | *Vehicle & Pickup modes* | *High-priority alarms* |
 
 ## 🧠 Key Features in v2.0
