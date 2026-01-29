@@ -17,7 +17,7 @@ class _AddCommutePageState extends State<AddCommutePage> {
   late TextEditingController _destinationController;
   late TimeOfDay _selectedTime;
   int _selectedMode = 0; // 0: Car, 1: Bike, 2: Train, 3: Flight
-  bool _isPickup = false; // The missing toggle
+  bool _isPickup = false;
   List<String> _selectedDays = [];
   double? _lat;
   double? _lon;
@@ -34,11 +34,15 @@ class _AddCommutePageState extends State<AddCommutePage> {
     _lat = widget.existingCommute?.lat;
     _lon = widget.existingCommute?.lon;
     
-    // Restore mode and pickup status
     if (widget.existingCommute?.mode == 'motorcycle') _selectedMode = 1;
     else if (widget.existingCommute?.mode == 'train') _selectedMode = 2;
     else if (widget.existingCommute?.mode == 'flight') _selectedMode = 3;
     else _selectedMode = 0;
+
+    if (widget.existingCommute != null && widget.existingCommute!.title.startsWith("Pick up: ")) {
+      _isPickup = true;
+      _destinationController.text = widget.existingCommute!.title.replaceFirst("Pick up: ", "");
+    }
   }
 
   TimeOfDay? _parseTime(String? timeStr) {
@@ -87,16 +91,16 @@ class _AddCommutePageState extends State<AddCommutePage> {
     else if (_selectedMode == 2) modeStr = 'train';
     else if (_selectedMode == 3) modeStr = 'flight';
 
-    // Combine mode and pickup info for the logic
     String finalTitle = _isPickup && (_selectedMode > 1) 
         ? "Pick up: ${_destinationController.text}" 
         : _destinationController.text;
 
     widget.onSave(Commute(
+      id: widget.existingCommute?.id, 
       title: finalTitle,
       time: _selectedTime.format(context),
       mode: modeStr,
-      days: _selectedDays,
+      days: List<String>.from(_selectedDays),
       lat: _lat!,
       lon: _lon!,
     ));
@@ -108,8 +112,15 @@ class _AddCommutePageState extends State<AddCommutePage> {
 
   @override
   Widget build(BuildContext context) {
+    // --- DYNAMIC THEME COLORS ---
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    // Input fields: Dark Grey in Dark Mode, Light Grey in Light Mode
+    final inputColor = isDark ? Colors.grey[900] : Colors.grey[200]; 
+    final hintColor = isDark ? Colors.grey : Colors.grey[600];
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor, // Adapts to settings
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -117,27 +128,25 @@ class _AddCommutePageState extends State<AddCommutePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(widget.existingCommute == null ? "New Trip" : "Edit Trip",
-                  style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
+                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: textColor)),
               const SizedBox(height: 30),
               
-              // MODE SELECTOR
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(color: Colors.grey[900], borderRadius: BorderRadius.circular(16)),
-                child: Row(
-                  children: [
-                    _buildModeBtn("Car", Icons.directions_car, 0),
-                    _buildModeBtn("Bike", Icons.motorcycle, 1),
-                    _buildModeBtn("Train", Icons.train, 2),
-                    _buildModeBtn("Flight", Icons.flight, 3),
-                  ],
-                ),
+              Row(
+                children: [
+                  Expanded(child: AnimatedModeTile(label: "Car", icon: Icons.directions_car, isSelected: _selectedMode == 0, onTap: () => setState(() => _selectedMode = 0))),
+                  const SizedBox(width: 8),
+                  Expanded(child: AnimatedModeTile(label: "Bike", icon: Icons.two_wheeler, isSelected: _selectedMode == 1, onTap: () => setState(() => _selectedMode = 1))),
+                  const SizedBox(width: 8),
+                  Expanded(child: AnimatedModeTile(label: "Train", icon: Icons.train, isSelected: _selectedMode == 2, onTap: () => setState(() => _selectedMode = 2))),
+                  const SizedBox(width: 8),
+                  Expanded(child: AnimatedModeTile(label: "Flight", icon: Icons.flight, isSelected: _selectedMode == 3, onTap: () => setState(() => _selectedMode = 3))),
+                ],
               ),
+              
               const SizedBox(height: 20),
 
-              // DYNAMIC PICKUP TOGGLE
               if (_selectedMode >= 2) 
-                _buildPickupToggle(),
+                _buildPickupToggle(isDark, inputColor!, textColor),
 
               const SizedBox(height: 20),
 
@@ -154,11 +163,11 @@ class _AddCommutePageState extends State<AddCommutePage> {
                   }
                   return TextField(
                     controller: controller, focusNode: focusNode,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: textColor),
                     decoration: InputDecoration(
                       hintText: "Destination (Station/Airport)",
-                      hintStyle: const TextStyle(color: Colors.grey),
-                      filled: true, fillColor: Colors.grey[900],
+                      hintStyle: TextStyle(color: hintColor),
+                      filled: true, fillColor: inputColor,
                       prefixIcon: const Icon(Icons.search, color: Colors.orange),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
                     ),
@@ -167,7 +176,6 @@ class _AddCommutePageState extends State<AddCommutePage> {
               ),
               const SizedBox(height: 30),
               
-              // DAY SELECTION
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: List.generate(7, (index) {
@@ -176,9 +184,12 @@ class _AddCommutePageState extends State<AddCommutePage> {
                     onTap: () => setState(() => isSelected ? _selectedDays.remove(_fullDays[index]) : _selectedDays.add(_fullDays[index])),
                     child: Container(
                       width: 40, height: 40,
-                      decoration: BoxDecoration(color: isSelected ? Colors.orange[800] : Colors.grey[900], shape: BoxShape.circle),
+                      decoration: BoxDecoration(
+                        color: isSelected ? Colors.orange[800] : inputColor, 
+                        shape: BoxShape.circle
+                      ),
                       alignment: Alignment.center,
-                      child: Text(_weekDays[index], style: TextStyle(color: isSelected ? Colors.white : Colors.grey)),
+                      child: Text(_weekDays[index], style: TextStyle(color: isSelected ? Colors.white : hintColor)),
                     ),
                   );
                 }),
@@ -192,11 +203,11 @@ class _AddCommutePageState extends State<AddCommutePage> {
                 },
                 child: Container(
                   padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(color: Colors.grey[900], borderRadius: BorderRadius.circular(16)),
+                  decoration: BoxDecoration(color: inputColor, borderRadius: BorderRadius.circular(16)),
                   child: Row(children: [
                     const Icon(Icons.access_time_filled, color: Colors.orange),
                     const SizedBox(width: 15),
-                    Text(_selectedTime.format(context), style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text(_selectedTime.format(context), style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold)),
                   ]),
                 ),
               ),
@@ -217,10 +228,10 @@ class _AddCommutePageState extends State<AddCommutePage> {
     );
   }
 
-  Widget _buildPickupToggle() {
+  Widget _buildPickupToggle(bool isDark, Color inputColor, Color textColor) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(color: Colors.grey[900], borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(color: inputColor, borderRadius: BorderRadius.circular(16)),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -229,7 +240,7 @@ class _AddCommutePageState extends State<AddCommutePage> {
               Icon(_isPickup ? Icons.person_pin_circle : Icons.flight_takeoff, color: Colors.orange, size: 20),
               const SizedBox(width: 12),
               Text(_isPickup ? "Picking someone up" : "Catching the trip", 
-                style: const TextStyle(color: Colors.white, fontSize: 14)),
+                style: TextStyle(color: textColor, fontSize: 14)),
             ],
           ),
           Switch(
@@ -241,20 +252,54 @@ class _AddCommutePageState extends State<AddCommutePage> {
       ),
     );
   }
+}
 
-  Widget _buildModeBtn(String label, IconData icon, int index) {
-    bool isSelected = _selectedMode == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _selectedMode = index),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(color: isSelected ? Colors.orange[800] : Colors.transparent, borderRadius: BorderRadius.circular(12)),
-          child: Column(children: [
-            Icon(icon, color: isSelected ? Colors.white : Colors.grey, size: 20),
+// --- ANIMATED TILE WIDGET (THEME AWARE) ---
+class AnimatedModeTile extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const AnimatedModeTile({
+    super.key, 
+    required this.label, 
+    required this.icon, 
+    required this.isSelected, 
+    required this.onTap
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Unselected color: Grey[900] (Dark) vs Grey[200] (Light)
+    final unselectedColor = isDark ? Colors.grey[900] : Colors.grey[200];
+    final unselectedIconColor = isDark ? Colors.grey : Colors.grey[600];
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutBack,
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.orange[800] : unselectedColor,
+          borderRadius: BorderRadius.circular(12),
+          border: isSelected ? Border.all(color: Colors.orange, width: 1) : null,
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: isSelected ? Colors.white : unselectedIconColor, size: 22),
             const SizedBox(height: 4),
-            Text(label, style: TextStyle(color: isSelected ? Colors.white : Colors.grey, fontSize: 10)),
-          ]),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : unselectedIconColor,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                fontSize: 10
+              ),
+            ),
+          ],
         ),
       ),
     );

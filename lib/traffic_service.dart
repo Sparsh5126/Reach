@@ -1,54 +1,149 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
+import 'package:geolocator/geolocator.dart';
 
 class TrafficService {
-  Future<int> getAdjustedTravelDuration(double destLat, double destLon) async {
-    try {
-      double startLat = 30.3165; 
-      double startLon = 78.0322;
-      final url = Uri.parse('https://router.project-osrm.org/route/v1/driving/$startLon,$startLat;$destLon,$destLat?overview=false');
-      final response = await http.get(url).timeout(const Duration(seconds: 5));
+  final String osrmBaseUrl = 'http://router.project-osrm.org/route/v1/driving';
 
-      int baseTraffic = 20;
+  // ===========================================================================
+  // 1. GET REAL-TIME TRAVEL DURATION (minutes)
+  // ===========================================================================
+  Future<int> getAdjustedTravelDuration(double destLat, double destLon) async {
+    double startLat, startLon;
+
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
+
+      startLat = position.latitude;
+      startLon = position.longitude;
+    } catch (e) {
+      startLat = 30.3165;
+      startLon = 78.0322;
+    }
+
+    try {
+      final url = Uri.parse(
+          '$osrmBaseUrl/$startLon,$startLat;$destLon,$destLat?overview=false');
+      final response = await http.get(url);
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        baseTraffic = ((data['routes'][0]['duration'] as num) / 60).round();
+
+        if ((data['routes'] as List).isNotEmpty) {
+          final durationVal = data['routes'][0]['duration'];
+          final double durationSeconds = (durationVal as num).toDouble();
+          int minutes = (durationSeconds / 60).ceil();
+          return minutes < 15 ? 15 : minutes;
+        }
       }
-      return baseTraffic + 15; // 15-min safety cushion
-    } catch (_) {
-      return 35; 
-    }
+    } catch (_) {}
+
+    return 35;
   }
 
-  Map<String, String> calculateSmartTimes(String title, String goalTimeStr, int trafficWithBuffer, double rainBuffer) {
-    try {
-      final format = RegExp(r'(\d+):(\d+)\s+(AM|PM)');
-      final match = format.firstMatch(goalTimeStr);
-      if (match == null) return {"leave": goalTimeStr, "ready": goalTimeStr};
+  // ===========================================================================
+  // 2. SMART TIME CALCULATION (STRING VERSION – UI)
+  // ===========================================================================
+  Map<String, String> calculateSmartTimes(
+    String title,
+    String arrivalTimeStr,
+    int realTravelMinutes,
+    double rainFactor,
+    String mode,
+  ) {
+    final dt = _calculateSmartDateTimesInternal(
+      arrivalTimeStr,
+      realTravelMinutes,
+      rainFactor,
+      mode,
+    );
 
-      int hour = int.parse(match.group(1)!);
-      int minute = int.parse(match.group(2)!);
-      if (match.group(3) == "PM" && hour < 12) hour += 12;
-      if (match.group(3) == "AM" && hour == 12) hour = 0;
+    final DateFormat outputFormat = DateFormat("h:mm a");
 
-      DateTime goalDate = DateTime(2026, 1, 1, hour, minute);
-      
-      // PICKUP LOGIC: Add 10 mins if picking someone up
-      int pickupBuffer = title.startsWith("Pick up:") ? 10 : 0;
-
-      DateTime leaveDate = goalDate.subtract(Duration(minutes: trafficWithBuffer + rainBuffer.toInt() + pickupBuffer));
-      DateTime readyDate = leaveDate.subtract(const Duration(minutes: 10));
-
-      return {"leave": _formatTime(leaveDate), "ready": _formatTime(readyDate)};
-    } catch (_) {
-      return {"leave": goalTimeStr, "ready": goalTimeStr};
-    }
+    return {
+      'leave': outputFormat.format(dt['leave']!),
+      'ready': outputFormat.format(dt['ready']!),
+      'travel_time_text': '${dt['travel']} min'
+    };
   }
 
-  String _formatTime(DateTime date) {
-    int h = date.hour;
-    String p = h >= 12 ? "PM" : "AM";
-    h = h > 12 ? h - 12 : (h == 0 ? 12 : h);
-    return "$h:${date.minute.toString().padLeft(2, '0')} $p";
+  // ===========================================================================
+  // 3. SMART TIME CALCULATION (DateTime VERSION – notifications)
+  // ===========================================================================
+  Map<String, DateTime> calculateSmartDateTimes(
+    String arrivalTimeStr,
+    int realTravelMinutes,
+    double rainFactor,
+    String mode,
+  ) {
+    final dt = _calculateSmartDateTimesInternal(
+      arrivalTimeStr,
+      realTravelMinutes,
+      rainFactor,
+      mode,
+    );
+
+    return {
+      'leave': dt['leave']!,
+      'ready': dt['ready']!,
+    };
+  }
+
+  // ===========================================================================
+  // INTERNAL (SINGLE SOURCE OF TRUTH)
+  // ===========================================================================
+  Map<String, dynamic> _calculateSmartDateTimesInternal(
+    String arrivalTimeStr,
+    int realTravelMinutes,
+    double rainFactor,
+    String mode,
+  ) {
+    double multiplier = 1.0;
+
+    bool isExposed = mode.toLowerCase().contains('cycle') ||
+        mode.toLowerCase().contains('bike') ||
+        mode.toLowerCase().contains('motor') ||
+        mode.toLowerCase().contains('walk');
+
+    if (rainFactor >= 0.9) {
+      multiplier = isExposed ? 2.0 : 1.5;
+    } else if (rainFactor >= 0.4) {
+      multiplier = isExposed ? 1.5 : 1.2;
+    }
+
+    int finalTravelTime = (realTravelMinutes * multiplier).round();
+
+    // 🔴 CRITICAL FIX: attach date context
+    final now = DateTime.now();
+    final match = RegExp(r'(\d+):(\d+)\s+(AM|PM)').firstMatch(arrivalTimeStr);
+
+    if (match == null) {
+      throw Exception("Invalid time format");
+    }
+
+    int h = int.parse(match.group(1)!);
+    int m = int.parse(match.group(2)!);
+    if (match.group(3) == "PM" && h < 12) h += 12;
+    if (match.group(3) == "AM" && h == 12) h = 0;
+
+    DateTime arrivalTime =
+        DateTime(now.year, now.month, now.day, h, m);
+
+    if (arrivalTime.isBefore(now)) {
+      arrivalTime = arrivalTime.add(const Duration(days: 1));
+    }
+
+    DateTime leaveTime =
+        arrivalTime.subtract(Duration(minutes: finalTravelTime));
+
+    DateTime readyTime = leaveTime.subtract(const Duration(minutes: 15));
+
+    return {
+      'leave': leaveTime,
+      'ready': readyTime,
+      'travel': finalTravelTime,
+    };
   }
 }

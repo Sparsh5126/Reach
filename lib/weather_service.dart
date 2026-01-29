@@ -2,33 +2,36 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class WeatherService {
-  final String _apiKey = "YOUR_OPENWEATHER_KEY"; // Ensure you have your key here
+  final String baseUrl = "https://api.open-meteo.com/v1/forecast";
 
-  Future<double> getWeatherBuffer(double lat, double lon, String mode) async {
+  /// Returns { 'factor': 1.0, 'emoji': '⛈️' }
+  Future<Map<String, dynamic>> getWeatherInfo(double lat, double lon) async {
     try {
-      final url = 'https://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$lon&appid=$_apiKey';
-      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 3));
+      final url = Uri.parse('$baseUrl?latitude=$lat&longitude=$lon&current_weather=true');
+      final response = await http.get(url);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        String weather = data['weather'][0]['main'].toString().toLowerCase();
-
-        double baseBuffer = 0.0;
-        if (weather.contains('rain') || weather.contains('drizzle')) {
-          baseBuffer = 15.0;
-        } else if (weather.contains('snow') || weather.contains('storm')) {
-          baseBuffer = 30.0;
+        final int code = data['current_weather']['weathercode'];
+        
+        // --- WEATHER CODE MAPPING ---
+        if (code >= 95 && code <= 99) {
+          return {'factor': 1.0, 'emoji': '⛈️'}; // Storm
+        } else if (code >= 61 && code <= 67) {
+          return {'factor': 0.5, 'emoji': '🌧️'}; // Rain
+        } else if (code >= 51 && code <= 57) {
+          return {'factor': 0.3, 'emoji': '🌦️'}; // Drizzle
+        } else if (code >= 71 && code <= 77) {
+          return {'factor': 1.0, 'emoji': '❄️'}; // Snow
+        } else if (code >= 1 && code <= 3) {
+          return {'factor': 0.0, 'emoji': '☁️'}; // Cloudy
+        } else {
+          return {'factor': 0.0, 'emoji': '☀️'}; // Clear (Default)
         }
-
-        // BIKER LOGIC: Double the buffer if on a motorcycle
-        if (mode == 'motorcycle') {
-          return baseBuffer * 2.0;
-        }
-        return baseBuffer;
       }
     } catch (e) {
-      return 0.0;
+      print("⚠️ Weather API Error: $e");
     }
-    return 0.0;
+    return {'factor': 0.0, 'emoji': ''}; // Return empty if failed
   }
 }

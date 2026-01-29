@@ -1,85 +1,145 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/timezone.dart' as tz;
-import 'package:timezone/data/latest.dart' as tz;
-import 'package:flutter/material.dart';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // REQUIRED
 import 'dart:io';
+import 'dart:async';
+
+@pragma('vm:entry-point')
+void packCallback(int id) async {
+  final plugin = FlutterLocalNotificationsPlugin();
+
+  await plugin.initialize(const InitializationSettings(
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+  ));
+
+  await plugin.show(
+    id,
+    '🎒 GET READY',
+    'Start preparing to leave',
+    const NotificationDetails(
+      android: AndroidNotificationDetails(
+        'reach_alarm',
+        'Critical Alarm',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+      ),
+    ),
+  );
+
+  // Chain Leave Alarm (15 mins later)
+  final leaveTime = DateTime.now().add(const Duration(minutes: 15));
+  await AndroidAlarmManager.oneShotAt(
+    leaveTime,
+    id + 1,
+    leaveCallback,
+    exact: true,
+    wakeup: true,
+    alarmClock: false,
+  );
+}
+
+@pragma('vm:entry-point')
+void leaveCallback(int id) async {
+  final plugin = FlutterLocalNotificationsPlugin();
+  
+  // --- CHECK USER SETTINGS ---
+  // We must load prefs here because this runs in the background
+  final prefs = await SharedPreferences.getInstance();
+  final bool useFullScreen = prefs.getBool('full_screen_alarm') ?? true; // Default: ON
+
+  await plugin.initialize(const InitializationSettings(
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+  ));
+
+  await plugin.show(
+    id,
+    '🚀 LEAVE NOW',
+    'Traffic is active. Leave immediately to reach on time.',
+    NotificationDetails( // Removed 'const' to allow dynamic variable
+      android: AndroidNotificationDetails(
+        'reach_alarm',
+        'Critical Alarm',
+        importance: Importance.max,
+        priority: Priority.high,
+        
+        // --- DYNAMIC TOGGLE ---
+        fullScreenIntent: useFullScreen, 
+        
+        category: AndroidNotificationCategory.alarm,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        playSound: true,
+      ),
+    ),
+    payload: 'ALARM', 
+  );
+}
 
 class NotificationService {
-  static final NotificationService _instance = NotificationService._internal();
-  factory NotificationService() => _instance;
+  static final NotificationService _i = NotificationService._internal();
+  factory NotificationService() => _i;
   NotificationService._internal();
 
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
+  final StreamController<String?> payloadStream = StreamController<String?>.broadcast();
+  FlutterLocalNotificationsPlugin get plugin => _plugin;
 
   Future<void> init() async {
-    tz.initializeTimeZones();
-    const settings = InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      iOS: DarwinInitializationSettings(),
+    await _plugin.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      ),
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        payloadStream.add(response.payload);
+      },
     );
-    await _plugin.initialize(settings);
 
-    // Requesting permission for Android 13+ notifications
+    const channel = AndroidNotificationChannel(
+      'reach_alarm',
+      'Critical Alarm',
+      importance: Importance.max,
+    );
+
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
     if (Platform.isAndroid) {
-      await _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
+      await AndroidAlarmManager.initialize();
     }
   }
 
-  // 🎒 PACK NOTIFICATION (Gentle)
-  Future<void> schedulePackNotification(int id, String title, DateTime time) async {
-    try {
-      await _plugin.zonedSchedule(
-        id,
-        '🎒 Get Ready: $title',
-        'Time to pack! You leave in 10 minutes.',
-        tz.TZDateTime.from(time, tz.local),
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'pack_channel', 'Pack Alerts',
-            importance: Importance.defaultImportance,
-            priority: Priority.defaultPriority,
-          ),
-        ),
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      );
-    } catch (e) {
-      debugPrint("Pack scheduling failed: $e");
+  Future<void> schedulePackNotification(int id, String title, DateTime targetTime) async {
+    final now = DateTime.now();
+    if (targetTime.isBefore(now.add(const Duration(minutes: 1)))) {
+      targetTime = now.add(const Duration(minutes: 1));
     }
+    await AndroidAlarmManager.oneShotAt(
+      targetTime,
+      id,
+      packCallback,
+      exact: true,
+      wakeup: true,
+      alarmClock: false,
+    );
   }
 
-  // 🚀 LEAVE ALARM (High Priority)
-  Future<void> scheduleLeaveAlarm(int id, String title, DateTime time) async {
-    try {
-      await _plugin.zonedSchedule(
-        id + 100,
-        '🚀 LEAVE NOW: $title',
-        'Traffic is moving. Time to hit the road!',
-        tz.TZDateTime.from(time, tz.local),
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'alarm_channel', 'Leave Alarms',
-            importance: Importance.max,
-            priority: Priority.high,
-            fullScreenIntent: true,
-            audioAttributesUsage: AudioAttributesUsage.alarm,
-            actions: <AndroidNotificationAction>[
-              AndroidNotificationAction('dismiss_id', 'Dismiss', showsUserInterface: false),
-            ],
-          ),
-        ),
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle, // Fails here without permission
-      );
-    } catch (e) {
-      debugPrint("Leave alarm failed: $e");
-    }
+  Future<void> scheduleLeaveAlarm(int id, DateTime targetTime) async {
+    await AndroidAlarmManager.oneShotAt(
+      targetTime,
+      id,
+      leaveCallback, 
+      exact: true,
+      wakeup: true,
+      alarmClock: true, 
+      allowWhileIdle: true,
+    );
   }
 
-  Future<void> cancelAll() async => await _plugin.cancelAll();
-  
   Future<void> stopAlarm(int id) async {
-    await _plugin.cancel(id + 100);
+    await AndroidAlarmManager.cancel(id);
+    await _plugin.cancel(id);
   }
 }
