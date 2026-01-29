@@ -7,11 +7,29 @@
 
 ## 📱 User Interface
 
-| Dashboard | Add Trip | Flight Mode | Train Mode |
-| :---: | :---: | :---: | :---: |
-| ![Dashboard](screenshots/home-page.jpeg) | ![Add Trip](screenshots/add-trip-car.jpeg) | ![Flight Mode](screenshots/add-trip-flight.jpeg) | ![Train Mode](screenshots/add-trip.jpeg) |
+<p align="center">
+  <img src="screenshots/home-page.jpeg" height="450px" style="margin-right: 10px;" />
+  <img src="screenshots/new-trip.jpeg" height="450px" style="margin-right: 10px;" />
+  <img src="screenshots/new-trip-car.jpeg" height="450px" style="margin-right: 10px;" />
+  <img src="screenshots/new-trip-flight.jpeg" height="450px" />
+</p>
 
-| *Smart-sorted schedule* | *Photon Geocoding search* | *Vehicle & Pickup modes* | *High-priority alarms* |
+<p align="center">
+  <i>Dashboard &nbsp; | &nbsp; Train Mode &nbsp; | &nbsp; Car Mode &nbsp; | &nbsp; Flight Pickup</i>
+</p>
+
+---
+
+## 🕹️ How to Interact
+
+To keep the interface clean and minimal, **Reach.** utilizes intuitive gestures for navigation and management:
+
+* **Single Tap**: Tap any commute card to instantly launch Google Maps navigation to that destination.
+* **Double Tap**: Double tap a card to open the "Edit" menu and adjust your arrival time or travel mode.
+* **Swipe Left**: Swipe a commute card to the left to delete it from your schedule.
+* **Add New**: Use the orange "Add New" button in the bottom navigation bar to search for a new destination.
+
+---
 
 ## 🧠 Key Features in v2.0
 
@@ -35,7 +53,7 @@
 
 ## 🚀 Installation
 
-1.  **Download**: Grab the latest APK from the [Releases](https://github.com/Sparsh5126/Reach./releases) section.
+1.  **Download**: Grab the latest APK from the [Releases](https://github.com/Sparsh5126/Reach/releases) section.
 2.  **Permissions**: Grant "Alarms & Reminders" when prompted to enable exact scheduling.
 
 ---
