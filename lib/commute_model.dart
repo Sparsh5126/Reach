@@ -1,79 +1,95 @@
-import 'dart:convert';
-import 'package:uuid/uuid.dart';
-
 class Commute {
   final String id;
-  final String title;
-  final String time; 
-  final String mode; 
-  final List<String> days; 
+  final String title;       // This is the Address/Location Name
+  final String? customTitle; // NEW: User's nickname ("Work", "Gym")
+  final String time;
+  final String mode;
+  final List<String> days;
   final double lat;
   final double lon;
   final String? eLoc;
+  final bool isFavorite;     // NEW: Pin to top
 
   Commute({
-    String? id,
+    required this.id,
     required this.title,
+    this.customTitle,        // NEW
     required this.time,
     required this.mode,
     required this.days,
     required this.lat,
     required this.lon,
     this.eLoc,
-  }) : id = id ?? const Uuid().v4();
+    this.isFavorite = false, // Default to false
+  });
 
-  int get timeInMinutes {
-    try {
-      final parts = time.split(" ");
-      final hm = parts[0].split(":");
-      int h = int.parse(hm[0]);
-      int m = int.parse(hm[1]);
-      if (parts[1] == "PM" && h != 12) h += 12;
-      if (parts[1] == "AM" && h == 12) h = 0;
-      return h * 60 + m;
-    } catch (e) {
-      return 0;
-    }
-  }
-
-  // --- 1. TO MAP (Used for Saving) ---
+  // Convert to Map for saving
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'title': title,
+      'customTitle': customTitle, // NEW
       'time': time,
       'mode': mode,
       'days': days,
       'lat': lat,
       'lon': lon,
       'eLoc': eLoc,
+      'isFavorite': isFavorite ? 1 : 0, // Save boolean as int
     };
   }
 
-  // --- 2. FROM MAP (Used for Loading) ---
-  factory Commute.fromMap(Map<String, dynamic> map) {
+  // Create from Map for loading
+  factory Commute.fromJson(Map<String, dynamic> map) {
     return Commute(
-      id: map['id'] ?? '',
-      title: map['title'] ?? '',
-      time: map['time'] ?? '',
-      mode: map['mode'] ?? 'car',
-      days: List<String>.from(map['days'] ?? []),
-      lat: map['lat']?.toDouble() ?? 0.0,
-      lon: map['lon']?.toDouble() ?? 0.0,
+      id: map['id'],
+      title: map['title'],
+      customTitle: map['customTitle'], // NEW
+      time: map['time'],
+      mode: map['mode'],
+      days: List<String>.from(map['days']),
+      lat: map['lat'],
+      lon: map['lon'],
       eLoc: map['eLoc'],
+      isFavorite: (map['isFavorite'] == 1), // Load int as boolean
     );
   }
 
-  String toJson() => json.encode(toMap());
+  // Helper to copy object
+  Commute copyWith({
+    String? title,
+    String? customTitle,
+    String? time,
+    String? mode,
+    List<String>? days,
+    double? lat,
+    double? lon,
+    String? eLoc,
+    bool? isFavorite,
+  }) {
+    return Commute(
+      id: id,
+      title: title ?? this.title,
+      customTitle: customTitle ?? this.customTitle,
+      time: time ?? this.time,
+      mode: mode ?? this.mode,
+      days: days ?? this.days,
+      lat: lat ?? this.lat,
+      lon: lon ?? this.lon,
+      eLoc: eLoc ?? this.eLoc,
+      isFavorite: isFavorite ?? this.isFavorite,
+    );
+  }
 
-  // --- 3. FLEXIBLE DECODER (Fixes the crash) ---
-  factory Commute.fromJson(dynamic source) {
-    if (source is String) {
-      return Commute.fromMap(json.decode(source));
-    } else if (source is Map<String, dynamic>) {
-      return Commute.fromMap(source);
-    } else {
-      throw Exception("Unknown type for Commute.fromJson");
-    }
+  // Helper to calculate minutes for sorting
+  int get timeInMinutes {
+    final t = time.replaceAll(RegExp(r'[^\d:APM]'), ''); 
+    final parts = t.split(":");
+    int h = int.parse(parts[0]);
+    int m = int.parse(parts[1].substring(0, 2));
+    final isPm = t.contains("PM");
+    if (isPm && h != 12) h += 12;
+    if (!isPm && h == 12) h = 0;
+    return h * 60 + m;
   }
 }

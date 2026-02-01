@@ -7,19 +7,27 @@ import 'location_service.dart';
 class AddCommutePage extends StatefulWidget {
   final Function(Commute) onSave;
   final Commute? existingCommute;
+  final bool isSheet;
 
-  const AddCommutePage({super.key, required this.onSave, this.existingCommute});
+  const AddCommutePage({
+    super.key, 
+    required this.onSave, 
+    this.existingCommute,
+    this.isSheet = false,
+  });
 
   @override
   State<AddCommutePage> createState() => _AddCommutePageState();
 }
 
 class _AddCommutePageState extends State<AddCommutePage> {
+  late TextEditingController _titleController;
   late TextEditingController _destinationController;
   late TimeOfDay _selectedTime;
   int _selectedMode = 0;
   bool _isPickup = false;
   List<String> _selectedDays = [];
+  bool _isFavorite = false;
   
   List<LocationResult> _suggestions = [];
   bool _isSearching = false;
@@ -32,57 +40,50 @@ class _AddCommutePageState extends State<AddCommutePage> {
   final List<String> _weekDays = ["M", "T", "W", "T", "F", "S", "S"];
   final List<String> _fullDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-@override
+  @override
   void initState() {
     super.initState();
+    
+    // 1. RESTORE EXISTING MODE (Fix for the bug)
+    if (widget.existingCommute != null) {
+      final m = widget.existingCommute!.mode;
+      if (m == 'motorcycle') _selectedMode = 1;
+      else if (m == 'train') _selectedMode = 2;
+      else if (m == 'flight') _selectedMode = 3;
+      else _selectedMode = 0; // Default to car
+    }
 
+    // Address Cleanup Logic
     String initialTitle = widget.existingCommute?.title ?? "";
     String? initialELoc = widget.existingCommute?.eLoc;
     double? initialLat = widget.existingCommute?.lat;
     double? initialLon = widget.existingCommute?.lon;
 
-    // --- ADVANCED ADDRESS CLEANUP ---
-    // Target: "Place, Street, City, State Zip, India" -> "Place, City"
     if (initialELoc == null && initialTitle.contains(',')) {
       List<String> parts = initialTitle.split(',').map((s) => s.trim()).toList();
-      
-      // 1. Remove "India" (Too broad)
-      if (parts.isNotEmpty && parts.last.toLowerCase() == 'india') {
-        parts.removeLast();
-      }
-      
-      // 2. Remove pure Zip Codes (e.g. "248001")
-      if (parts.isNotEmpty && RegExp(r'^\d+$').hasMatch(parts.last)) {
-         parts.removeLast();
-      }
+      if (parts.isNotEmpty && parts.last.toLowerCase() == 'india') parts.removeLast();
+      if (parts.isNotEmpty && RegExp(r'^\d+$').hasMatch(parts.last)) parts.removeLast();
 
-      // 3. SMART SELECTION
       if (parts.length >= 3) {
-        // Case: "Anytime Fitness, Plot No 4, Dehradun, Uttrakhand 23..."
-        // We take First ("Anytime Fitness") + Second-to-Last ("Dehradun")
-        // This skips the vague "State Zip" part at the end.
         String placeName = parts.first;
         String cityName = parts[parts.length - 2]; 
         initialTitle = "$placeName, $cityName";
-      } 
-      else if (parts.length == 2) {
-        // Case: "Anytime Fitness, Dehradun" -> Keep both
+      } else if (parts.length == 2) {
         initialTitle = "${parts.first}, ${parts.last}";
-      } 
-      else if (parts.isNotEmpty) {
-        // Fallback
+      } else if (parts.isNotEmpty) {
         initialTitle = parts.first;
       }
     }
 
+    _titleController = TextEditingController(text: widget.existingCommute?.customTitle ?? "");
     _destinationController = TextEditingController(text: initialTitle);
     _selectedTime = _parseTime(widget.existingCommute?.time) ?? const TimeOfDay(hour: 8, minute: 30);
     _selectedDays = List.from(widget.existingCommute?.days ?? []);
     _lat = initialLat;
     _lon = initialLon;
     _eLoc = initialELoc;
+    _isFavorite = widget.existingCommute?.isFavorite ?? false;
 
-    // --- AUTO-SEARCH ---
     if (_destinationController.text.isNotEmpty && _eLoc == null) {
       Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) _onSearchChanged(_destinationController.text);
@@ -96,12 +97,9 @@ class _AddCommutePageState extends State<AddCommutePage> {
       setState(() => _suggestions = []);
       return;
     }
-
     _debounce = Timer(const Duration(milliseconds: 600), () async {
       setState(() => _isSearching = true);
-      
       final results = await LocationService.searchPlaces(query);
-      
       if (mounted) {
         setState(() {
           _suggestions = results;
@@ -124,29 +122,20 @@ class _AddCommutePageState extends State<AddCommutePage> {
 
   void _submitData() {
     if (_destinationController.text.isEmpty) return;
-
     if (_selectedDays.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select at least one day"), backgroundColor: Colors.red));
       return;
     }
 
-    // --- HANDLE MISSING ELOC (CALENDAR AUTO-ADD) ---
     if (_eLoc == null) {
       if (_suggestions.isNotEmpty) {
-        // Automatically pick the first/best result if user didn't tap one
         final bestMatch = _suggestions.first;
         _eLoc = bestMatch.eLoc;
         _lat = bestMatch.lat;
         _lon = bestMatch.lon;
         _destinationController.text = bestMatch.name;
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Please select a location from the list for accurate navigation."),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 3),
-          )
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Select a valid location."), backgroundColor: Colors.orange));
         return;
       }
     }
@@ -156,21 +145,19 @@ class _AddCommutePageState extends State<AddCommutePage> {
     else if (_selectedMode == 2) modeStr = 'train';
     else if (_selectedMode == 3) modeStr = 'flight';
 
-    String finalTitle = _isPickup && (_selectedMode > 1) 
-        ? "Pick up: ${_destinationController.text}" 
-        : _destinationController.text;
-
     final String finalId = widget.existingCommute?.id ?? const Uuid().v4();
 
     widget.onSave(Commute(
       id: finalId, 
-      title: finalTitle,
+      title: _destinationController.text, 
+      customTitle: _titleController.text.isEmpty ? null : _titleController.text,
       time: _selectedTime.format(context),
       mode: modeStr,
       days: _selectedDays,
       lat: _lat ?? 0.0, 
       lon: _lon ?? 0.0,
       eLoc: _eLoc,
+      isFavorite: _isFavorite,
     ));
   }
 
@@ -181,126 +168,175 @@ class _AddCommutePageState extends State<AddCommutePage> {
     final inputColor = isDark ? Colors.grey[900] : Colors.grey[200];
     final hintColor = isDark ? Colors.grey : Colors.grey[600];
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 40, 24, 24), 
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(widget.existingCommute == null ? "New Trip" : "Edit Trip",
-                        style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: textColor)),
-                    const SizedBox(height: 30),
-                    
-                    Row(
-                      children: [
-                        Expanded(child: AnimatedModeTile(label: "Car", icon: Icons.directions_car, isSelected: _selectedMode == 0, onTap: () => setState(() => _selectedMode = 0))),
-                        const SizedBox(width: 8),
-                        Expanded(child: AnimatedModeTile(label: "Bike", icon: Icons.two_wheeler, isSelected: _selectedMode == 1, onTap: () => setState(() => _selectedMode = 1))),
-                        const SizedBox(width: 8),
-                        Expanded(child: AnimatedModeTile(label: "Train", icon: Icons.train, isSelected: _selectedMode == 2, onTap: () => setState(() => _selectedMode = 2))),
-                        const SizedBox(width: 8),
-                        Expanded(child: AnimatedModeTile(label: "Flight", icon: Icons.flight, isSelected: _selectedMode == 3, onTap: () => setState(() => _selectedMode = 3))),
-                      ],
-                    ),
+    Widget content = SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(widget.existingCommute == null ? "New Trip" : "Edit Trip",
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: textColor)),
+              IconButton(
+                icon: Icon(_isFavorite ? Icons.favorite : Icons.favorite_border, color: _isFavorite ? Colors.red : hintColor),
+                onPressed: () => setState(() => _isFavorite = !_isFavorite),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // TITLE
+          TextField(
+            controller: _titleController,
+            style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+            decoration: InputDecoration(
+              hintText: "Trip Name (e.g. Work, Gym)",
+              hintStyle: TextStyle(color: hintColor),
+              filled: true, fillColor: inputColor,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+            ),
+          ),
+          const SizedBox(height: 16),
           
-                    const SizedBox(height: 20),
-                    if (_selectedMode >= 2) _buildPickupToggle(isDark, inputColor!, textColor),
-                    const SizedBox(height: 20),
+          // MODES
+          Row(
+            children: [
+              Expanded(child: AnimatedModeTile(label: "Car", icon: Icons.directions_car, isSelected: _selectedMode == 0, onTap: () => setState(() => _selectedMode = 0))),
+              const SizedBox(width: 8),
+              Expanded(child: AnimatedModeTile(label: "Bike", icon: Icons.two_wheeler, isSelected: _selectedMode == 1, onTap: () => setState(() => _selectedMode = 1))),
+              const SizedBox(width: 8),
+              Expanded(child: AnimatedModeTile(label: "Train", icon: Icons.train, isSelected: _selectedMode == 2, onTap: () => setState(() => _selectedMode = 2))),
+              const SizedBox(width: 8),
+              Expanded(child: AnimatedModeTile(label: "Flight", icon: Icons.flight, isSelected: _selectedMode == 3, onTap: () => setState(() => _selectedMode = 3))),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_selectedMode >= 2) Padding(padding: const EdgeInsets.only(bottom: 16), child: _buildPickupToggle(isDark, inputColor!, textColor)),
 
-                    TextField(
-                      controller: _destinationController,
-                      onChanged: _onSearchChanged,
-                      style: TextStyle(color: textColor),
-                      decoration: InputDecoration(
-                        hintText: "Search Destination",
-                        hintStyle: TextStyle(color: hintColor),
-                        filled: true, fillColor: inputColor,
-                        prefixIcon: const Icon(Icons.search, color: Colors.orange),
-                        suffixIcon: _isSearching ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)) : null,
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                      ),
-                    ),
+          // DESTINATION
+          TextField(
+            controller: _destinationController,
+            onChanged: _onSearchChanged,
+            style: TextStyle(color: textColor),
+            decoration: InputDecoration(
+              hintText: "Search Destination",
+              hintStyle: TextStyle(color: hintColor),
+              filled: true, fillColor: inputColor,
+              prefixIcon: const Icon(Icons.search, color: Colors.orange),
+              suffixIcon: _isSearching ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)) : null,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+            ),
+          ),
 
-                    if (_suggestions.isNotEmpty)
-                      Container(
-                        margin: const EdgeInsets.only(top: 8),
-                        decoration: BoxDecoration(color: isDark ? Colors.grey[850] : Colors.white, borderRadius: BorderRadius.circular(12)),
-                        child: ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _suggestions.length,
-                          itemBuilder: (ctx, i) {
-                            final p = _suggestions[i];
-                            return ListTile(
-                              title: Text(p.name, style: TextStyle(color: textColor)),
-                              subtitle: Text(p.address, style: TextStyle(color: hintColor, fontSize: 12)),
-                              onTap: () => _selectLocation(p),
-                            );
-                          },
-                        ),
-                      ),
-
-                    const SizedBox(height: 30),
-                    
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: List.generate(7, (index) {
-                        bool isSelected = _selectedDays.contains(_fullDays[index]);
-                        return GestureDetector(
-                          onTap: () => setState(() => isSelected ? _selectedDays.remove(_fullDays[index]) : _selectedDays.add(_fullDays[index])),
-                          child: Container(
-                            width: 40, height: 40,
-                            decoration: BoxDecoration(
-                              color: isSelected ? Colors.orange[800] : inputColor, 
-                              shape: BoxShape.circle
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(_weekDays[index], style: TextStyle(color: isSelected ? Colors.white : hintColor)),
-                          ),
-                        );
-                      }),
-                    ),
-                    const SizedBox(height: 30),
-
-                    GestureDetector(
-                      onTap: () async {
-                        final picked = await showTimePicker(context: context, initialTime: _selectedTime);
-                        if (picked != null) setState(() => _selectedTime = picked);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(color: inputColor, borderRadius: BorderRadius.circular(16)),
-                        child: Row(children: [
-                          const Icon(Icons.access_time_filled, color: Colors.orange),
-                          const SizedBox(width: 15),
-                          Text(_selectedTime.format(context), style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold)),
-                        ]),
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-
-                    SizedBox(
-                      width: double.infinity, height: 60,
-                      child: ElevatedButton(
-                        onPressed: _submitData,
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800], shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-                        child: const Text("Set Alert", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                  ],
-                ),
+          if (_suggestions.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              constraints: const BoxConstraints(maxHeight: 200),
+              decoration: BoxDecoration(color: isDark ? Colors.grey[850] : Colors.white, borderRadius: BorderRadius.circular(12)),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _suggestions.length,
+                itemBuilder: (ctx, i) {
+                  final p = _suggestions[i];
+                  return ListTile(
+                    title: Text(p.name, style: TextStyle(color: textColor)),
+                    subtitle: Text(p.address, style: TextStyle(color: hintColor, fontSize: 12)),
+                    onTap: () => _selectLocation(p),
+                  );
+                },
               ),
             ),
-          ],
-        ),
+
+          const SizedBox(height: 24),
+          
+          // DAYS
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(7, (index) {
+              bool isSelected = _selectedDays.contains(_fullDays[index]);
+              return GestureDetector(
+                onTap: () => setState(() => isSelected ? _selectedDays.remove(_fullDays[index]) : _selectedDays.add(_fullDays[index])),
+                child: Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(color: isSelected ? Colors.orange[800] : inputColor, shape: BoxShape.circle),
+                  alignment: Alignment.center,
+                  child: Text(_weekDays[index], style: TextStyle(color: isSelected ? Colors.white : hintColor)),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 24),
+
+          // TIME & SAVE
+          Row(
+            children: [
+              Expanded(
+                flex: 1, 
+                child: GestureDetector(
+                  onTap: () async {
+                    final picked = await showTimePicker(context: context, initialTime: _selectedTime);
+                    if (picked != null) setState(() => _selectedTime = picked);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(color: inputColor, borderRadius: BorderRadius.circular(16)),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.access_time_filled, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            _selectedTime.format(context), 
+                            style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                flex: 1, 
+                child: SizedBox(
+                  height: 56,
+                  child: ElevatedButton(
+                    onPressed: _submitData,
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800], shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                    child: const Text("Save", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+        ],
       ),
     );
+
+    if (widget.isSheet) {
+      final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
+      return Container(
+        padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottomPadding),
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: content,
+      );
+    } else {
+      return Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 40, 24, 0),
+            child: content,
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildPickupToggle(bool isDark, Color inputColor, Color textColor) {
@@ -379,14 +415,7 @@ class AnimatedModeTile extends StatelessWidget {
           children: [
             Icon(icon, color: isSelected ? Colors.white : unselectedIconColor, size: 22),
             const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : unselectedIconColor,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                fontSize: 10
-              ),
-            ),
+            Text(label, style: TextStyle(color: isSelected ? Colors.white : unselectedIconColor, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal, fontSize: 10)),
           ],
         ),
       ),

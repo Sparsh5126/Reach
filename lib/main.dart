@@ -112,10 +112,10 @@ class _MainContainerState extends State<MainContainer> with WidgetsBindingObserv
     final events = await CalendarService.getUpcomingTravelEvents();
     
     // 2. Filter out events that are EITHER:
-    //    a) Already added as a commute (matching title)
+    //    a) Already added as a commute (matching title or location)
     //    b) In our "ignored" list
     final newEvents = events.where((e) {
-      final isAlreadyAdded = myCommutes.any((c) => c.title == e.location); // Check against location since we use that as title
+      final isAlreadyAdded = myCommutes.any((c) => c.title == e.location); 
       final isIgnored = _ignoredEventIds.contains(e.eventId);
       return !isAlreadyAdded && !isIgnored;
     }).toList();
@@ -123,14 +123,13 @@ class _MainContainerState extends State<MainContainer> with WidgetsBindingObserv
     if (newEvents.isNotEmpty && mounted) {
       // Only show popup if no other modal is likely open
       if (Navigator.of(context).canPop() == false) { 
-         // This check is basic; usually you just show it. 
-         // For now, we just show it.
+         // Safe to show
       }
       _showEventPopup(newEvents.first);
     }
   }
 
-  // --- NEW: Helper to ignore events ---
+  // --- Helper to ignore events ---
   Future<void> _ignoreEvent(String eventId) async {
     setState(() {
       _ignoredEventIds.add(eventId);
@@ -187,7 +186,7 @@ class _MainContainerState extends State<MainContainer> with WidgetsBindingObserv
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), padding: const EdgeInsets.symmetric(vertical: 16)),
                     onPressed: () {
-                      _ignoreEvent(event.eventId); // Mark processed so it doesn't pop again
+                      _ignoreEvent(event.eventId); // Mark processed
                       Navigator.pop(context);
                       _addCalendarCommute(event);
                     },
@@ -211,14 +210,18 @@ class _MainContainerState extends State<MainContainer> with WidgetsBindingObserv
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent, // Allow dynamic sheet styling
       builder: (context) => AddCommutePage(
+        isSheet: true, // <--- IMPORTANT: Show as Popup
         onSave: (c) {
           _saveCommute(c);
           Navigator.pop(context);
         },
         existingCommute: Commute(
           id: const Uuid().v4(),
-          title: event.location, // Use location for the title/search
+          title: event.location, 
+          // Use event title as custom title so user sees "Coffee with John"
+          customTitle: event.title, 
           time: TimeOfDay.fromDateTime(event.startTime).format(context),
           mode: "car",
           days: [specificDay],
@@ -253,7 +256,13 @@ class _MainContainerState extends State<MainContainer> with WidgetsBindingObserv
       try {
         setState(() {
           myCommutes = (json.decode(data) as List).map((e) => Commute.fromJson(e)).toList();
-          myCommutes.sort((a, b) => a.timeInMinutes.compareTo(b.timeInMinutes));
+          // Sort on load as well
+          myCommutes.sort((a, b) {
+            if (a.isFavorite != b.isFavorite) {
+              return a.isFavorite ? -1 : 1;
+            }
+            return a.timeInMinutes.compareTo(b.timeInMinutes);
+          });
         });
       } catch (e) {
         debugPrint("Load error: $e");
@@ -275,7 +284,7 @@ class _MainContainerState extends State<MainContainer> with WidgetsBindingObserv
               title: const Text("Google Maps"),
               onTap: () async {
                 Navigator.pop(context);
-                final url = Uri.parse("http://googleusercontent.com/maps.google.com/search?q=${Uri.encodeComponent(c.title)}");
+                final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(c.title)}");
                 if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
               },
             ),
@@ -284,12 +293,8 @@ class _MainContainerState extends State<MainContainer> with WidgetsBindingObserv
               title: const Text("Mappls (MapMyIndia)"),
               onTap: () async {
                 Navigator.pop(context);
-                
-                // FIXED MAPPLS URL: Use 'navigation' instead of 'pin'
-                // Fallback to https link which handles intents automatically
                 final navUrl = Uri.parse("mappls://navigation?destination=${c.eLoc}&destinationName=${Uri.encodeComponent(c.title)}");
                 final webFallback = Uri.parse("https://mappls.com/${c.eLoc}");
-                
                 try {
                   if (await canLaunchUrl(navUrl)) {
                     await launchUrl(navUrl, mode: LaunchMode.externalApplication);
@@ -312,7 +317,9 @@ class _MainContainerState extends State<MainContainer> with WidgetsBindingObserv
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent, // NEW: Needed for the new Add Page design
       builder: (context) => AddCommutePage(
+        isSheet: true, // <--- IMPORTANT: Show as Popup
         existingCommute: c,
         onSave: (updated) {
           _saveCommute(updated);
@@ -342,7 +349,14 @@ class _MainContainerState extends State<MainContainer> with WidgetsBindingObserv
     setState(() {
       myCommutes.removeWhere((e) => e.id == c.id);
       myCommutes.add(c);
-      myCommutes.sort((a, b) => a.timeInMinutes.compareTo(b.timeInMinutes));
+      
+      // NEW SORTING LOGIC: Favorites First, then Time
+      myCommutes.sort((a, b) {
+        if (a.isFavorite != b.isFavorite) {
+          return a.isFavorite ? -1 : 1; // True (Favorite) comes first
+        }
+        return a.timeInMinutes.compareTo(b.timeInMinutes);
+      });
     });
     await prefs.setString('commutes', json.encode(myCommutes.map((e) => e.toMap()).toList()));
   }
@@ -369,10 +383,13 @@ class _MainContainerState extends State<MainContainer> with WidgetsBindingObserv
                     onDoubleTap: _editCommute,
                     onDelete: _deleteCommute,
                   )
-                : AddCommutePage(onSave: (c) {
-                    _saveCommute(c);
-                    setState(() => _selectedIndex = 0);
-                  }),
+                : AddCommutePage( // <--- CHANGED: No Align wrapper, full page
+                    isSheet: false, // <--- IMPORTANT: Show as Full Page
+                    onSave: (c) {
+                      _saveCommute(c);
+                      setState(() => _selectedIndex = 0);
+                    },
+                  ),
           ),
           Align(
             alignment: Alignment.bottomCenter,
@@ -488,13 +505,14 @@ class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return CommuteCard(
-            title: widget.commute.title,
+            title: widget.commute.customTitle ?? widget.commute.title,
             arriveBy: widget.commute.time,
             leaveBy: "...",
             readyBy: "...",
             mode: widget.commute.mode,
             days: widget.commute.days,
             weatherEmoji: "",
+            isFavorite: widget.commute.isFavorite, // <--- PASSING FAVORITE STATUS
             onTap: () {},
             onDirections: () {},
             onDoubleTap: () {},
@@ -503,14 +521,16 @@ class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
         final rain = (snapshot.data!['weather']['factor'] as num).toDouble();
         final traffic = snapshot.data!['traffic'] as int;
         final smart = TrafficService().calculateSmartTimes(widget.commute.title, widget.commute.time, traffic, rain, widget.commute.mode);
+        
         return CommuteCard(
-          title: widget.commute.title,
+          title: widget.commute.customTitle ?? widget.commute.title,
           arriveBy: widget.commute.time,
           leaveBy: smart['leave']!,
           readyBy: smart['ready']!,
           mode: widget.commute.mode,
           days: List<String>.from(widget.commute.days),
           weatherEmoji: snapshot.data!['weather']['emoji'],
+          isFavorite: widget.commute.isFavorite, // <--- PASSING FAVORITE STATUS
           onTap: () => widget.onDirections(widget.commute),
           onDirections: () => widget.onDirections(widget.commute),
           onDoubleTap: () => widget.onDoubleTap(widget.commute),

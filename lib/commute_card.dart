@@ -9,8 +9,9 @@ class CommuteCard extends StatelessWidget {
   final List<String> days;
   final VoidCallback onTap;
   final VoidCallback onDoubleTap;
-  final VoidCallback onDirections; // <--- This was missing
+  final VoidCallback onDirections;
   final String? weatherEmoji;
+  final bool isFavorite;
 
   const CommuteCard({
     super.key,
@@ -22,8 +23,9 @@ class CommuteCard extends StatelessWidget {
     required this.days,
     required this.onTap,
     required this.onDoubleTap,
-    required this.onDirections, // <--- Add this
+    required this.onDirections,
     required this.weatherEmoji,
+    this.isFavorite = false,
   });
 
   @override
@@ -60,7 +62,22 @@ class CommuteCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              title, 
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (isFavorite) Padding(
+                            padding: const EdgeInsets.only(left: 6),
+                            child: Icon(Icons.favorite, size: 14, color: Colors.redAccent),
+                          ),
+                        ],
+                      ),
                       Text("Arrive $arriveBy • ${days.join(' ')}", style: TextStyle(color: Colors.grey[600], fontSize: 11)),
                     ],
                   ),
@@ -91,7 +108,8 @@ class CommuteCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.inventory_2_outlined, size: 14, color: Colors.orange),
+                    // CHANGED ICON HERE
+                    const Icon(Icons.coffee_outlined, size: 14, color: Colors.orange),
                     const SizedBox(width: 6),
                     Text("Ready at $readyBy", style: TextStyle(color: subText, fontSize: 12)),
                   ],
@@ -99,7 +117,7 @@ class CommuteCard extends StatelessWidget {
                 
                 // Directions Button
                 TextButton.icon(
-                  onPressed: onDirections, // <--- Used here
+                  onPressed: onDirections,
                   style: TextButton.styleFrom(
                     backgroundColor: Colors.orange.withOpacity(0.1),
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
