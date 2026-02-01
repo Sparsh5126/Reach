@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:uuid/uuid.dart';
 
 import 'alarm_screen.dart';
 import 'commute_model.dart';
@@ -15,6 +16,7 @@ import 'sliding_nav_bar.dart';
 import 'notification_service.dart';
 import 'traffic_service.dart';
 import 'weather_service.dart';
+import 'calendar_service.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.dark);
@@ -27,6 +29,7 @@ void main() async {
     debugPrint("Env load failed: $e");
   }
   await NotificationService().init();
+  await CalendarService.init();
   final prefs = await SharedPreferences.getInstance();
   final isDark = prefs.getBool('is_dark_mode') ?? true;
   themeNotifier.value = isDark ? ThemeMode.dark : ThemeMode.light;
@@ -46,23 +49,12 @@ class ReachApp extends StatelessWidget {
           themeMode: currentMode,
           darkTheme: ThemeData.dark().copyWith(
             scaffoldBackgroundColor: Colors.black,
-            colorScheme: const ColorScheme.dark(
-              primary: Colors.orange,
-              secondary: Colors.orangeAccent,
-            ),
+            colorScheme: const ColorScheme.dark(primary: Colors.orange, secondary: Colors.orangeAccent),
           ),
           theme: ThemeData.light().copyWith(
             scaffoldBackgroundColor: const Color(0xFFF5F5F7),
-            appBarTheme: const AppBarTheme(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black,
-              elevation: 0,
-            ),
-            colorScheme: const ColorScheme.light(
-              primary: Colors.orange,
-              secondary: Colors.orangeAccent,
-              surface: Colors.white,
-            ),
+            appBarTheme: const AppBarTheme(backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
+            colorScheme: const ColorScheme.light(primary: Colors.orange, secondary: Colors.orangeAccent, surface: Colors.white),
           ),
           home: const MainContainer(),
         );
@@ -77,27 +69,165 @@ class MainContainer extends StatefulWidget {
   State<MainContainer> createState() => _MainContainerState();
 }
 
-class _MainContainerState extends State<MainContainer> {
+class _MainContainerState extends State<MainContainer> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   List<Commute> myCommutes = [];
   bool _ready = false;
   Position? _currentPosition;
+  List<String> _ignoredEventIds = []; // Stores IDs of events we've already handled
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _init();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkCalendar();
+    }
   }
 
   Future<void> _init() async {
     await _load();
-    await [
-      Permission.notification,
-      Permission.locationWhenInUse,
-      Permission.systemAlertWindow,
-    ].request();
+    await [Permission.notification, Permission.locationWhenInUse, Permission.systemAlertWindow, Permission.calendar].request();
     await _determinePosition();
     setState(() => _ready = true);
+    // Check calendar after a short delay to ensure UI is ready
+    Future.delayed(const Duration(seconds: 1), _checkCalendar);
+  }
+
+  Future<void> _checkCalendar() async {
+    if (!_ready) return;
+
+    // 1. Fetch upcoming events
+    final events = await CalendarService.getUpcomingTravelEvents();
+    
+    // 2. Filter out events that are EITHER:
+    //    a) Already added as a commute (matching title)
+    //    b) In our "ignored" list
+    final newEvents = events.where((e) {
+      final isAlreadyAdded = myCommutes.any((c) => c.title == e.location); // Check against location since we use that as title
+      final isIgnored = _ignoredEventIds.contains(e.eventId);
+      return !isAlreadyAdded && !isIgnored;
+    }).toList();
+
+    if (newEvents.isNotEmpty && mounted) {
+      // Only show popup if no other modal is likely open
+      if (Navigator.of(context).canPop() == false) { 
+         // This check is basic; usually you just show it. 
+         // For now, we just show it.
+      }
+      _showEventPopup(newEvents.first);
+    }
+  }
+
+  // --- NEW: Helper to ignore events ---
+  Future<void> _ignoreEvent(String eventId) async {
+    setState(() {
+      _ignoredEventIds.add(eventId);
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('ignored_events', _ignoredEventIds);
+  }
+
+  void _showEventPopup(CalendarEventResult event) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 20),
+            const CircleAvatar(radius: 30, backgroundColor: Colors.orange, child: Icon(Icons.calendar_month_rounded, color: Colors.white, size: 30)),
+            const SizedBox(height: 20),
+            Text("New Event Detected", style: TextStyle(color: isDark ? Colors.grey : Colors.grey[600], fontSize: 14)),
+            const SizedBox(height: 8),
+            Text(event.title, textAlign: TextAlign.center, style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 22, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.location_on, size: 16, color: Colors.orange),
+                const SizedBox(width: 4),
+                Flexible(child: Text(event.location, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: isDark ? Colors.grey[300] : Colors.grey[800]))),
+              ],
+            ),
+            const SizedBox(height: 30),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () {
+                      _ignoreEvent(event.eventId); // Save to ignore list
+                      Navigator.pop(context);
+                    },
+                    child: Text("Ignore", style: TextStyle(color: Colors.grey[600])),
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), padding: const EdgeInsets.symmetric(vertical: 16)),
+                    onPressed: () {
+                      _ignoreEvent(event.eventId); // Mark processed so it doesn't pop again
+                      Navigator.pop(context);
+                      _addCalendarCommute(event);
+                    },
+                    child: const Text("Set Reach Alert", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _addCalendarCommute(CalendarEventResult event) {
+    final fullDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    final dayIndex = event.startTime.weekday - 1;
+    final specificDay = fullDays[dayIndex];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => AddCommutePage(
+        onSave: (c) {
+          _saveCommute(c);
+          Navigator.pop(context);
+        },
+        existingCommute: Commute(
+          id: const Uuid().v4(),
+          title: event.location, // Use location for the title/search
+          time: TimeOfDay.fromDateTime(event.startTime).format(context),
+          mode: "car",
+          days: [specificDay],
+          lat: 0.0,
+          lon: 0.0,
+          eLoc: null,
+        ),
+      ),
+    );
   }
 
   Future<void> _determinePosition() async {
@@ -114,6 +244,10 @@ class _MainContainerState extends State<MainContainer> {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
+    
+    // Load ignored events
+    _ignoredEventIds = prefs.getStringList('ignored_events') ?? [];
+
     final data = prefs.getString('commutes');
     if (data != null) {
       try {
@@ -127,28 +261,22 @@ class _MainContainerState extends State<MainContainer> {
     }
   }
 
-void _openMapPicker(Commute c) {
+  void _openMapPicker(Commute c) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) => SafeArea(
         child: Wrap(
           children: [
-            const ListTile(
-              title: Text("Navigate with", style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
+            const ListTile(title: Text("Navigate with", style: TextStyle(fontWeight: FontWeight.bold))),
             ListTile(
               leading: const Icon(Icons.map, color: Colors.blue),
               title: const Text("Google Maps"),
               onTap: () async {
                 Navigator.pop(context);
-                final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(c.title)}");
-                if (await canLaunchUrl(url)) {
-                  await launchUrl(url, mode: LaunchMode.externalApplication);
-                }
+                final url = Uri.parse("http://googleusercontent.com/maps.google.com/search?q=${Uri.encodeComponent(c.title)}");
+                if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
               },
             ),
             ListTile(
@@ -157,20 +285,19 @@ void _openMapPicker(Commute c) {
               onTap: () async {
                 Navigator.pop(context);
                 
-                // 1. Try launching the App first
-                final appUrl = Uri.parse("mappls://pin?eloc=${c.eLoc}");
-                final webUrl = Uri.parse("https://mappls.com/${c.eLoc}");
-
+                // FIXED MAPPLS URL: Use 'navigation' instead of 'pin'
+                // Fallback to https link which handles intents automatically
+                final navUrl = Uri.parse("mappls://navigation?destination=${c.eLoc}&destinationName=${Uri.encodeComponent(c.title)}");
+                final webFallback = Uri.parse("https://mappls.com/${c.eLoc}");
+                
                 try {
-                  if (await canLaunchUrl(appUrl)) {
-                    await launchUrl(appUrl, mode: LaunchMode.externalApplication);
+                  if (await canLaunchUrl(navUrl)) {
+                    await launchUrl(navUrl, mode: LaunchMode.externalApplication);
                   } else {
-                    // 2. Fallback to Website if App not installed
-                    await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+                    await launchUrl(webFallback, mode: LaunchMode.externalApplication);
                   }
                 } catch (e) {
-                  // 3. Final safety net
-                  await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+                  await launchUrl(webFallback, mode: LaunchMode.externalApplication);
                 }
               },
             ),
@@ -180,6 +307,7 @@ void _openMapPicker(Commute c) {
       ),
     );
   }
+
   void _editCommute(Commute c) {
     showModalBottomSheet(
       context: context,
@@ -210,7 +338,6 @@ void _openMapPicker(Commute c) {
       traffic = res[1] as int;
     } catch (_) {}
 
-    final times = TrafficService().calculateSmartTimes(c.title, c.time, traffic, rain, c.mode);
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       myCommutes.removeWhere((e) => e.id == c.id);
@@ -309,7 +436,6 @@ class HomePage extends StatelessWidget {
               ),
             );
           }
-
           final c = commutes[index - 1];
           final useLat = currentPos?.latitude ?? c.lat;
           final useLon = currentPos?.longitude ?? c.lon;
@@ -320,21 +446,12 @@ class HomePage extends StatelessWidget {
             onDismissed: (_) => onDelete(index - 1),
             background: Container(
               margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: Colors.redAccent.withOpacity(0.8),
-                borderRadius: BorderRadius.circular(24),
-              ),
+              decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.8), borderRadius: BorderRadius.circular(24)),
               alignment: Alignment.centerRight,
               padding: const EdgeInsets.only(right: 25),
               child: const Icon(Icons.delete_forever, color: Colors.white, size: 30),
             ),
-            child: _AsyncCommuteCard(
-              commute: c,
-              lat: useLat,
-              lon: useLon,
-              onDirections: onDirections,
-              onDoubleTap: onDoubleTap,
-            ),
+            child: _AsyncCommuteCard(commute: c, lat: useLat, lon: useLon, onDirections: onDirections, onDoubleTap: onDoubleTap),
           );
         },
       ),
@@ -348,22 +465,13 @@ class _AsyncCommuteCard extends StatefulWidget {
   final double lon;
   final Function(Commute) onDirections;
   final Function(Commute) onDoubleTap;
-
-  const _AsyncCommuteCard({
-    required this.commute,
-    required this.lat,
-    required this.lon,
-    required this.onDirections,
-    required this.onDoubleTap,
-  });
-
+  const _AsyncCommuteCard({required this.commute, required this.lat, required this.lon, required this.onDirections, required this.onDoubleTap});
   @override
   State<_AsyncCommuteCard> createState() => _AsyncCommuteCardState();
 }
 
 class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
   late Future<Map<String, dynamic>> _dataFuture;
-
   @override
   void initState() {
     super.initState();
@@ -392,11 +500,9 @@ class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
             onDoubleTap: () {},
           );
         }
-
         final rain = (snapshot.data!['weather']['factor'] as num).toDouble();
         final traffic = snapshot.data!['traffic'] as int;
         final smart = TrafficService().calculateSmartTimes(widget.commute.title, widget.commute.time, traffic, rain, widget.commute.mode);
-
         return CommuteCard(
           title: widget.commute.title,
           arriveBy: widget.commute.time,
@@ -428,7 +534,6 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     _loadPrefs();
   }
-
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -436,7 +541,6 @@ class _SettingsPageState extends State<SettingsPage> {
       _isDarkMode = prefs.getBool('is_dark_mode') ?? true;
     });
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(

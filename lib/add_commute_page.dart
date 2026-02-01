@@ -32,15 +32,62 @@ class _AddCommutePageState extends State<AddCommutePage> {
   final List<String> _weekDays = ["M", "T", "W", "T", "F", "S", "S"];
   final List<String> _fullDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-  @override
+@override
   void initState() {
     super.initState();
-    _destinationController = TextEditingController(text: widget.existingCommute?.title ?? "");
+
+    String initialTitle = widget.existingCommute?.title ?? "";
+    String? initialELoc = widget.existingCommute?.eLoc;
+    double? initialLat = widget.existingCommute?.lat;
+    double? initialLon = widget.existingCommute?.lon;
+
+    // --- ADVANCED ADDRESS CLEANUP ---
+    // Target: "Place, Street, City, State Zip, India" -> "Place, City"
+    if (initialELoc == null && initialTitle.contains(',')) {
+      List<String> parts = initialTitle.split(',').map((s) => s.trim()).toList();
+      
+      // 1. Remove "India" (Too broad)
+      if (parts.isNotEmpty && parts.last.toLowerCase() == 'india') {
+        parts.removeLast();
+      }
+      
+      // 2. Remove pure Zip Codes (e.g. "248001")
+      if (parts.isNotEmpty && RegExp(r'^\d+$').hasMatch(parts.last)) {
+         parts.removeLast();
+      }
+
+      // 3. SMART SELECTION
+      if (parts.length >= 3) {
+        // Case: "Anytime Fitness, Plot No 4, Dehradun, Uttrakhand 23..."
+        // We take First ("Anytime Fitness") + Second-to-Last ("Dehradun")
+        // This skips the vague "State Zip" part at the end.
+        String placeName = parts.first;
+        String cityName = parts[parts.length - 2]; 
+        initialTitle = "$placeName, $cityName";
+      } 
+      else if (parts.length == 2) {
+        // Case: "Anytime Fitness, Dehradun" -> Keep both
+        initialTitle = "${parts.first}, ${parts.last}";
+      } 
+      else if (parts.isNotEmpty) {
+        // Fallback
+        initialTitle = parts.first;
+      }
+    }
+
+    _destinationController = TextEditingController(text: initialTitle);
     _selectedTime = _parseTime(widget.existingCommute?.time) ?? const TimeOfDay(hour: 8, minute: 30);
     _selectedDays = List.from(widget.existingCommute?.days ?? []);
-    _lat = widget.existingCommute?.lat;
-    _lon = widget.existingCommute?.lon;
-    _eLoc = widget.existingCommute?.eLoc;
+    _lat = initialLat;
+    _lon = initialLon;
+    _eLoc = initialELoc;
+
+    // --- AUTO-SEARCH ---
+    if (_destinationController.text.isNotEmpty && _eLoc == null) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) _onSearchChanged(_destinationController.text);
+      });
+    }
   }
 
   void _onSearchChanged(String query) {
@@ -78,16 +125,30 @@ class _AddCommutePageState extends State<AddCommutePage> {
   void _submitData() {
     if (_destinationController.text.isEmpty) return;
 
-    // VALIDATION: Prevent saving without selecting a day
     if (_selectedDays.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Please select at least one day"),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 2),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select at least one day"), backgroundColor: Colors.red));
       return;
+    }
+
+    // --- HANDLE MISSING ELOC (CALENDAR AUTO-ADD) ---
+    if (_eLoc == null) {
+      if (_suggestions.isNotEmpty) {
+        // Automatically pick the first/best result if user didn't tap one
+        final bestMatch = _suggestions.first;
+        _eLoc = bestMatch.eLoc;
+        _lat = bestMatch.lat;
+        _lon = bestMatch.lon;
+        _destinationController.text = bestMatch.name;
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Please select a location from the list for accurate navigation."),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          )
+        );
+        return;
+      }
     }
     
     String modeStr = 'car';
@@ -127,7 +188,6 @@ class _AddCommutePageState extends State<AddCommutePage> {
           children: [
             Expanded(
               child: SingleChildScrollView(
-                // Increased top padding to push title down from notification bar
                 padding: const EdgeInsets.fromLTRB(24, 40, 24, 24), 
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
