@@ -4,6 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'alarm_screen.dart';
 import 'commute_model.dart';
@@ -14,39 +16,34 @@ import 'notification_service.dart';
 import 'traffic_service.dart';
 import 'weather_service.dart';
 
-// --- GLOBAL KEYS & NOTIFIERS ---
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.dark);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    debugPrint("Env load failed: $e");
+  }
   await NotificationService().init();
-  
-  // Load saved theme
   final prefs = await SharedPreferences.getInstance();
   final isDark = prefs.getBool('is_dark_mode') ?? true;
   themeNotifier.value = isDark ? ThemeMode.dark : ThemeMode.light;
-
   runApp(const ReachApp());
 }
 
 class ReachApp extends StatelessWidget {
   const ReachApp({super.key});
-
   @override
   Widget build(BuildContext context) {
-    // Wrap with ValueListenableBuilder to listen for theme changes
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: themeNotifier,
       builder: (context, currentMode, _) {
         return MaterialApp(
           navigatorKey: navigatorKey,
           debugShowCheckedModeBanner: false,
-          
-          // --- THEME CONFIGURATION ---
           themeMode: currentMode,
-          
-          // 1. Dark Theme (Original)
           darkTheme: ThemeData.dark().copyWith(
             scaffoldBackgroundColor: Colors.black,
             colorScheme: const ColorScheme.dark(
@@ -54,10 +51,8 @@ class ReachApp extends StatelessWidget {
               secondary: Colors.orangeAccent,
             ),
           ),
-          
-          // 2. Light Theme (New)
           theme: ThemeData.light().copyWith(
-            scaffoldBackgroundColor: const Color(0xFFF5F5F7), // Soft grey/white
+            scaffoldBackgroundColor: const Color(0xFFF5F5F7),
             appBarTheme: const AppBarTheme(
               backgroundColor: Colors.white,
               foregroundColor: Colors.black,
@@ -69,7 +64,6 @@ class ReachApp extends StatelessWidget {
               surface: Colors.white,
             ),
           ),
-          
           home: const MainContainer(),
         );
       },
@@ -79,7 +73,6 @@ class ReachApp extends StatelessWidget {
 
 class MainContainer extends StatefulWidget {
   const MainContainer({super.key});
-
   @override
   State<MainContainer> createState() => _MainContainerState();
 }
@@ -88,6 +81,7 @@ class _MainContainerState extends State<MainContainer> {
   int _selectedIndex = 0;
   List<Commute> myCommutes = [];
   bool _ready = false;
+  Position? _currentPosition;
 
   @override
   void initState() {
@@ -99,138 +93,138 @@ class _MainContainerState extends State<MainContainer> {
     await _load();
     await [
       Permission.notification,
-      Permission.scheduleExactAlarm,
-      Permission.ignoreBatteryOptimizations,
       Permission.locationWhenInUse,
       Permission.systemAlertWindow,
     ].request();
-
-    final NotificationAppLaunchDetails? notificationAppLaunchDetails =
-        await NotificationService().plugin.getNotificationAppLaunchDetails();
-
-    if (notificationAppLaunchDetails?.didNotificationLaunchApp ?? false) {
-      final payload = notificationAppLaunchDetails!.notificationResponse?.payload;
-      if (payload == 'ALARM') {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          navigatorKey.currentState?.push(
-            MaterialPageRoute(builder: (_) => const AlarmScreen(payload: 'ALARM'))
-          );
-        });
-      }
-    }
-
-    NotificationService().payloadStream.stream.listen((payload) {
-      if (payload == 'ALARM') {
-        navigatorKey.currentState?.push(
-          MaterialPageRoute(builder: (_) => const AlarmScreen(payload: 'ALARM'))
-        );
-      }
-    });
-
+    await _determinePosition();
     setState(() => _ready = true);
+  }
+
+  Future<void> _determinePosition() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+    Position pos = await Geolocator.getCurrentPosition();
+    setState(() => _currentPosition = pos);
   }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final data = prefs.getString('commutes');
     if (data != null) {
-      setState(() {
-        myCommutes = (json.decode(data) as List).map((e) => Commute.fromJson(e)).toList();
-        myCommutes.sort((a, b) => a.timeInMinutes.compareTo(b.timeInMinutes));
-      });
+      try {
+        setState(() {
+          myCommutes = (json.decode(data) as List).map((e) => Commute.fromJson(e)).toList();
+          myCommutes.sort((a, b) => a.timeInMinutes.compareTo(b.timeInMinutes));
+        });
+      } catch (e) {
+        debugPrint("Load error: $e");
+      }
     }
+  }
+
+void _openMapPicker(Commute c) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            const ListTile(
+              title: Text("Navigate with", style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.map, color: Colors.blue),
+              title: const Text("Google Maps"),
+              onTap: () async {
+                Navigator.pop(context);
+                final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(c.title)}");
+                if (await canLaunchUrl(url)) {
+                  await launchUrl(url, mode: LaunchMode.externalApplication);
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.explore, color: Colors.redAccent),
+              title: const Text("Mappls (MapMyIndia)"),
+              onTap: () async {
+                Navigator.pop(context);
+                
+                // 1. Try launching the App first
+                final appUrl = Uri.parse("mappls://pin?eloc=${c.eLoc}");
+                final webUrl = Uri.parse("https://mappls.com/${c.eLoc}");
+
+                try {
+                  if (await canLaunchUrl(appUrl)) {
+                    await launchUrl(appUrl, mode: LaunchMode.externalApplication);
+                  } else {
+                    // 2. Fallback to Website if App not installed
+                    await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+                  }
+                } catch (e) {
+                  // 3. Final safety net
+                  await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+                }
+              },
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+  void _editCommute(Commute c) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => AddCommutePage(
+        existingCommute: c,
+        onSave: (updated) {
+          _saveCommute(updated);
+          Navigator.pop(context);
+        },
+      ),
+    );
   }
 
   Future<void> _saveCommute(Commute c) async {
     if (!_ready) return;
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Calculating Traffic..."), duration: Duration(milliseconds: 800))
-      );
-    }
-
-    final int internalId = c.id.hashCode;
     int traffic = 35;
     double rain = 0.0;
+    double startLat = _currentPosition?.latitude ?? c.lat;
+    double startLon = _currentPosition?.longitude ?? c.lon;
 
     try {
       final res = await Future.wait([
-        WeatherService().getWeatherInfo(c.lat, c.lon),
-        TrafficService().getAdjustedTravelDuration(c.lat, c.lon),
+        WeatherService().getWeatherInfo(startLat, startLon),
+        TrafficService().getAdjustedTravelDuration(startLat, startLon, c.eLoc),
       ]);
       rain = (res[0] as Map<String, dynamic>)['factor'] ?? 0.0;
       traffic = res[1] as int;
     } catch (_) {}
 
-    final times = TrafficService().calculateSmartTimes(
-      c.title,
-      c.time,
-      traffic,
-      rain,
-      c.mode,
-    );
-
-    DateTime parseTime(String t) {
-        final match = RegExp(r'(\d+):(\d+)\s+(AM|PM)').firstMatch(t);
-        if (match == null) return DateTime.now().add(const Duration(minutes: 10));
-
-        int h = int.parse(match.group(1)!);
-        int m = int.parse(match.group(2)!);
-        if (match.group(3) == "PM" && h < 12) h += 12;
-        if (match.group(3) == "AM" && h == 12) h = 0;
-
-        final now = DateTime.now();
-        DateTime d = DateTime(now.year, now.month, now.day, h, m);
-        if (d.isBefore(now)) d = d.add(const Duration(days: 1)); 
-        return d;
-    }
-
-    final DateTime leaveTime = parseTime(times['leave']!);
-    final DateTime packTime = parseTime(times['ready']!);
-
-    // 1. Pack
-    await NotificationService().schedulePackNotification(
-      internalId,
-      c.title,
-      packTime,
-    );
-
-    // 2. Leave
-    await NotificationService().scheduleLeaveAlarm(
-      internalId,
-      leaveTime,
-    );
-
+    final times = TrafficService().calculateSmartTimes(c.title, c.time, traffic, rain, c.mode);
     final prefs = await SharedPreferences.getInstance();
-    
     setState(() {
       myCommutes.removeWhere((e) => e.id == c.id);
       myCommutes.add(c);
       myCommutes.sort((a, b) => a.timeInMinutes.compareTo(b.timeInMinutes));
     });
-    
-    await prefs.setString(
-      'commutes',
-      json.encode(myCommutes.map((e) => e.toJson()).toList()),
-    );
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      setState(() => _selectedIndex = 0);
-    }
+    await prefs.setString('commutes', json.encode(myCommutes.map((e) => e.toMap()).toList()));
   }
 
   void _deleteCommute(int index) async {
     final c = myCommutes[index];
     setState(() => myCommutes.removeAt(index));
-    
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      'commutes',
-      json.encode(myCommutes.map((e) => e.toJson()).toList()),
-    );
-    
+    await prefs.setString('commutes', json.encode(myCommutes.map((e) => e.toMap()).toList()));
     await NotificationService().stopAlarm(c.id.hashCode);
   }
 
@@ -243,10 +237,15 @@ class _MainContainerState extends State<MainContainer> {
             child: _selectedIndex == 0
                 ? HomePage(
                     commutes: myCommutes,
-                    onSave: _saveCommute,
+                    currentPos: _currentPosition, 
+                    onDirections: _openMapPicker,
+                    onDoubleTap: _editCommute,
                     onDelete: _deleteCommute,
                   )
-                : AddCommutePage(onSave: _saveCommute),
+                : AddCommutePage(onSave: (c) {
+                    _saveCommute(c);
+                    setState(() => _selectedIndex = 0);
+                  }),
           ),
           Align(
             alignment: Alignment.bottomCenter,
@@ -264,12 +263,159 @@ class _MainContainerState extends State<MainContainer> {
   }
 }
 
-// ===================================================================
-// SETTINGS PAGE
-// ===================================================================
+class HomePage extends StatelessWidget {
+  final List<Commute> commutes;
+  final Position? currentPos;
+  final Function(Commute) onDirections;
+  final Function(Commute) onDoubleTap;
+  final Function(int) onDelete;
+
+  const HomePage({
+    super.key,
+    required this.commutes,
+    this.currentPos,
+    required this.onDirections,
+    required this.onDoubleTap,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : Colors.black87;
+
+    return SafeArea(
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(24, 40, 24, 120),
+        itemCount: commutes.length + 1,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 25), 
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Text("Reach", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: textColor)),
+                      Text(".", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.orange[800])),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.settings),
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage())),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final c = commutes[index - 1];
+          final useLat = currentPos?.latitude ?? c.lat;
+          final useLon = currentPos?.longitude ?? c.lon;
+
+          return Dismissible(
+            key: Key(c.id),
+            direction: DismissDirection.endToStart,
+            onDismissed: (_) => onDelete(index - 1),
+            background: Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 25),
+              child: const Icon(Icons.delete_forever, color: Colors.white, size: 30),
+            ),
+            child: _AsyncCommuteCard(
+              commute: c,
+              lat: useLat,
+              lon: useLon,
+              onDirections: onDirections,
+              onDoubleTap: onDoubleTap,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AsyncCommuteCard extends StatefulWidget {
+  final Commute commute;
+  final double lat;
+  final double lon;
+  final Function(Commute) onDirections;
+  final Function(Commute) onDoubleTap;
+
+  const _AsyncCommuteCard({
+    required this.commute,
+    required this.lat,
+    required this.lon,
+    required this.onDirections,
+    required this.onDoubleTap,
+  });
+
+  @override
+  State<_AsyncCommuteCard> createState() => _AsyncCommuteCardState();
+}
+
+class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
+  late Future<Map<String, dynamic>> _dataFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _dataFuture = Future.wait([
+      WeatherService().getWeatherInfo(widget.lat, widget.lon),
+      TrafficService().getAdjustedTravelDuration(widget.lat, widget.lon, widget.commute.eLoc),
+    ]).then((res) => {'weather': res[0], 'traffic': res[1]});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _dataFuture,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return CommuteCard(
+            title: widget.commute.title,
+            arriveBy: widget.commute.time,
+            leaveBy: "...",
+            readyBy: "...",
+            mode: widget.commute.mode,
+            days: widget.commute.days,
+            weatherEmoji: "",
+            onTap: () {},
+            onDirections: () {},
+            onDoubleTap: () {},
+          );
+        }
+
+        final rain = (snapshot.data!['weather']['factor'] as num).toDouble();
+        final traffic = snapshot.data!['traffic'] as int;
+        final smart = TrafficService().calculateSmartTimes(widget.commute.title, widget.commute.time, traffic, rain, widget.commute.mode);
+
+        return CommuteCard(
+          title: widget.commute.title,
+          arriveBy: widget.commute.time,
+          leaveBy: smart['leave']!,
+          readyBy: smart['ready']!,
+          mode: widget.commute.mode,
+          days: List<String>.from(widget.commute.days),
+          weatherEmoji: snapshot.data!['weather']['emoji'],
+          onTap: () => widget.onDirections(widget.commute),
+          onDirections: () => widget.onDirections(widget.commute),
+          onDoubleTap: () => widget.onDoubleTap(widget.commute),
+        );
+      },
+    );
+  }
+}
+
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
-
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -277,7 +423,6 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   bool _fullScreenAlarm = true;
   bool _isDarkMode = true;
-
   @override
   void initState() {
     super.initState();
@@ -292,205 +437,33 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  Future<void> _toggleAlarmType(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('full_screen_alarm', value);
-    setState(() => _fullScreenAlarm = value);
-  }
-
-  Future<void> _toggleTheme(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_dark_mode', value);
-    setState(() => _isDarkMode = value);
-    
-    // Update global app theme
-    themeNotifier.value = value ? ThemeMode.dark : ThemeMode.light;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Settings"),
-        centerTitle: true,
-        backgroundColor: Colors.transparent, 
-      ),
+      appBar: AppBar(title: const Text("Settings"), centerTitle: true, backgroundColor: Colors.transparent),
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          const Text(
-            "PREFERENCES",
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.5,
-              color: Colors.grey,
-            ),
+          SwitchListTile(
+            title: const Text("Full Screen Alarm"),
+            value: _fullScreenAlarm,
+            onChanged: (val) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('full_screen_alarm', val);
+              setState(() => _fullScreenAlarm = val);
+            },
           ),
-          const SizedBox(height: 10),
-          
-          // 1. FULL SCREEN ALARM TOGGLE
-          Container(
-            decoration: BoxDecoration(
-              color: isDark ? Colors.grey[900] : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: isDark ? [] : [
-                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))
-              ],
-            ),
-            child: SwitchListTile(
-              title: const Text("Full Screen Alarm"),
-              subtitle: const Text("Wake up screen when alarm fires"),
-              secondary: const Icon(Icons.screen_lock_portrait),
-              value: _fullScreenAlarm,
-              activeColor: Colors.orange,
-              onChanged: _toggleAlarmType,
-            ),
-          ),
-          
-          const SizedBox(height: 20),
-          
-          // 2. THEME TOGGLE
-          Container(
-            decoration: BoxDecoration(
-              color: isDark ? Colors.grey[900] : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: isDark ? [] : [
-                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))
-              ],
-            ),
-            child: SwitchListTile(
-              title: const Text("Dark Mode"),
-              secondary: Icon(isDark ? Icons.dark_mode : Icons.light_mode),
-              value: _isDarkMode,
-              activeColor: Colors.purpleAccent,
-              onChanged: _toggleTheme,
-            ),
+          SwitchListTile(
+            title: const Text("Dark Mode"),
+            value: _isDarkMode,
+            onChanged: (val) async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('is_dark_mode', val);
+              themeNotifier.value = val ? ThemeMode.dark : ThemeMode.light;
+              setState(() => _isDarkMode = val);
+            },
           ),
         ],
-      ),
-    );
-  }
-}
-
-class HomePage extends StatelessWidget {
-  final List<Commute> commutes;
-  final Function(Commute) onSave;
-  final Function(int) onDelete;
-
-  const HomePage({
-    super.key,
-    required this.commutes,
-    required this.onSave,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // Check theme for text color logic
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : Colors.black87;
-
-    return SafeArea(
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(24, 40, 24, 120),
-        itemCount: commutes.length + 1,
-        itemBuilder: (context, index) {
-          if (index == 0) {
-            return Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Text("Reach", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: textColor)),
-                        Text(".", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.orange[800])),
-                      ],
-                    ),
-                    
-                    // --- SETTINGS BUTTON ---
-                    IconButton(
-                      icon: Icon(Icons.settings, color: isDark ? Colors.grey[400] : Colors.grey[600]),
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const SettingsPage()),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 25),
-              ],
-            );
-          }
-
-          final c = commutes[index - 1];
-
-          return Dismissible(
-            key: Key(c.id),
-            direction: DismissDirection.endToStart,
-            onDismissed: (direction) => onDelete(index - 1),
-            background: Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.8), borderRadius: BorderRadius.circular(24)),
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.only(right: 25),
-              child: const Icon(Icons.delete_forever, color: Colors.white, size: 30),
-            ),
-            child: FutureBuilder<Map<String, dynamic>>(
-               future: Future.wait<dynamic>([
-                  WeatherService().getWeatherInfo(c.lat, c.lon),
-                  TrafficService().getAdjustedTravelDuration(c.lat, c.lon),
-                ]).then((res) {
-                  return {'weather': res[0], 'traffic': res[1]};
-                }),
-              builder: (context, snapshot) {
-                  double rain = 0.0;
-                  int traffic = 35;
-                  String emoji = "";
-                  
-                  if (snapshot.hasData) {
-                    final w = snapshot.data!['weather'] as Map<String, dynamic>;
-                    rain = (w['factor'] as num).toDouble();
-                    emoji = w['emoji'] ?? "";
-                    traffic = snapshot.data!['traffic'] as int;
-                  }
-
-                  final smart = TrafficService().calculateSmartTimes(
-                    c.title, c.time, traffic, rain, c.mode
-                  );
-
-                  return CommuteCard(
-                  title: c.title,
-                  arriveBy: c.time,
-                  leaveBy: smart['leave']!,
-                  readyBy: smart['ready']!,
-                  mode: c.mode,
-                  days: c.days is List ? List<String>.from(c.days) : [c.days.toString()],
-                  weatherEmoji: emoji,
-                  onTap: () async {
-                    final uri = Uri.parse("google.navigation:q=${c.lat},${c.lon}");
-                    if (await canLaunchUrl(uri)) await launchUrl(uri);
-                  },
-                  onDoubleTap: () {
-                    showModalBottomSheet(
-                      context: context, 
-                      isScrollControlled: true,
-                      builder: (context) => AddCommutePage(
-                        existingCommute: c, 
-                        onSave: (u) { onSave(u); Navigator.pop(context); }
-                      ),
-                    );
-                  },
-                );
-              }
-            ),
-          );
-        },
       ),
     );
   }

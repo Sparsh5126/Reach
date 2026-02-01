@@ -9,6 +9,7 @@ class CommuteCard extends StatelessWidget {
   final List<String> days;
   final VoidCallback onTap;
   final VoidCallback onDoubleTap;
+  final VoidCallback onDirections; // <--- This was missing
   final String? weatherEmoji;
 
   const CommuteCard({
@@ -21,23 +22,18 @@ class CommuteCard extends StatelessWidget {
     required this.days,
     required this.onTap,
     required this.onDoubleTap,
+    required this.onDirections, // <--- Add this
     required this.weatherEmoji,
   });
 
   @override
   Widget build(BuildContext context) {
-    // --- DYNAMIC COLORS ---
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
-    // Background: Dark Grey (Dark) vs White (Light)
     final cardBg = isDark ? const Color(0xFF161616) : Colors.white;
-    // Border: Subtle white (Dark) vs None (Light)
     final borderColor = isDark ? Colors.white.withOpacity(0.05) : Colors.transparent;
-    // Text: White (Dark) vs Black (Light)
     final textColor = isDark ? Colors.white : Colors.black87;
     final subText = isDark ? Colors.grey[400] : Colors.grey[600];
 
-    // Shadow: Only for Light Mode
     final List<BoxShadow> shadows = isDark ? [] : [
       BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 15, offset: const Offset(0, 5))
     ];
@@ -65,7 +61,7 @@ class CommuteCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
-                      Text("Arrive $arriveBy • ${days.join('')}", style: TextStyle(color: Colors.grey[600], fontSize: 11)),
+                      Text("Arrive $arriveBy • ${days.join(' ')}", style: TextStyle(color: Colors.grey[600], fontSize: 11)),
                     ],
                   ),
                 ),
@@ -75,7 +71,6 @@ class CommuteCard extends StatelessWidget {
                     const Text("LEAVE BY", style: TextStyle(color: Colors.orange, fontSize: 9, fontWeight: FontWeight.w900)),
                     Row(
                       mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Text(leaveBy, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: textColor)),
                         if (weatherEmoji != null && weatherEmoji!.isNotEmpty) ...[
@@ -89,6 +84,8 @@ class CommuteCard extends StatelessWidget {
               ],
             ),
             Divider(height: 25, color: isDark ? Colors.white10 : Colors.grey[200]),
+            
+            // --- ACTION ROW ---
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -96,10 +93,21 @@ class CommuteCard extends StatelessWidget {
                   children: [
                     const Icon(Icons.inventory_2_outlined, size: 14, color: Colors.orange),
                     const SizedBox(width: 6),
-                    Text("Get Ready (Pack):", style: TextStyle(color: subText, fontSize: 12)),
+                    Text("Ready at $readyBy", style: TextStyle(color: subText, fontSize: 12)),
                   ],
                 ),
-                Text(readyBy, style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 13)),
+                
+                // Directions Button
+                TextButton.icon(
+                  onPressed: onDirections, // <--- Used here
+                  style: TextButton.styleFrom(
+                    backgroundColor: Colors.orange.withOpacity(0.1),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.directions_rounded, size: 16, color: Colors.orange),
+                  label: const Text("Go", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12)),
+                ),
               ],
             ),
           ],
@@ -111,7 +119,6 @@ class CommuteCard extends StatelessWidget {
   Widget _buildIcon() {
     final m = mode.toLowerCase();
     IconData icon;
-    
     if (m.contains('motor') || m.contains('bike')) icon = Icons.two_wheeler;
     else if (m.contains('train') || m.contains('metro')) icon = Icons.train;
     else if (m.contains('flight')) icon = Icons.flight;

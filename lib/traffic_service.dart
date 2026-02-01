@@ -1,149 +1,92 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
-import 'package:geolocator/geolocator.dart';
+import 'location_service.dart'; // <--- Auth Source
 
 class TrafficService {
-  final String osrmBaseUrl = 'http://router.project-osrm.org/route/v1/driving';
+  static const String _matrixUrl = "https://atlas.mappls.com/api/places/distance/matrix";
 
-  // ===========================================================================
-  // 1. GET REAL-TIME TRAVEL DURATION (minutes)
-  // ===========================================================================
-  Future<int> getAdjustedTravelDuration(double destLat, double destLon) async {
-    double startLat, startLon;
+  // --- GET DYNAMIC TRAVEL DURATION ---
+  Future<int> getAdjustedTravelDuration(
+    double startLat, 
+    double startLon, 
+    String? eLoc,
+  ) async {
+    if (eLoc == null) return 30; // Default fallback
 
-    try {
-      Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
-
-      startLat = position.latitude;
-      startLon = position.longitude;
-    } catch (e) {
-      startLat = 30.3165;
-      startLon = 78.0322;
-    }
+    // 1. Get Token from Central Auth
+    String? token = await LocationService.getValidToken();
+    if (token == null) return 35;
 
     try {
-      final url = Uri.parse(
-          '$osrmBaseUrl/$startLon,$startLat;$destLon,$destLat?overview=false');
-      final response = await http.get(url);
+      // matrix/driving/startLon,startLat;destELoc
+      final url = Uri.parse("$_matrixUrl/driving/$startLon,$startLat;$eLoc?annotations=duration");
+      
+      final response = await http.get(
+        url,
+        headers: {'Authorization': 'Bearer $token'},
+      );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-
-        if ((data['routes'] as List).isNotEmpty) {
-          final durationVal = data['routes'][0]['duration'];
-          final double durationSeconds = (durationVal as num).toDouble();
-          int minutes = (durationSeconds / 60).ceil();
-          return minutes < 15 ? 15 : minutes;
-        }
+        final durationSeconds = data['results']['durations'][0][1];
+        if (durationSeconds == null) return 35;
+        return (durationSeconds / 60).round();
       }
     } catch (_) {}
-
-    return 35;
+    return 35; // Standard fallback
   }
 
-  // ===========================================================================
-  // 2. SMART TIME CALCULATION (STRING VERSION – UI)
-  // ===========================================================================
+  // --- SMART TIME CALCULATION ---
   Map<String, String> calculateSmartTimes(
     String title,
-    String arrivalTimeStr,
-    int realTravelMinutes,
-    double rainFactor,
+    String arriveBy,
+    int baseTrafficMinutes,
+    double rainFactor, // 0.0 to 1.0 (0 = clear, 1 = heavy rain)
     String mode,
   ) {
-    final dt = _calculateSmartDateTimesInternal(
-      arrivalTimeStr,
-      realTravelMinutes,
-      rainFactor,
-      mode,
-    );
+    // 1. BASE BUFFER (Parking, Walking to car, etc)
+    int buffer = 10;
+    if (mode == 'motorcycle') buffer = 5;
+    if (mode == 'train' || mode == 'flight') buffer = 45; // Security/Parking
 
-    final DateFormat outputFormat = DateFormat("h:mm a");
+    // 2. WEATHER PENALTY
+    // Rain increases traffic and prep time (finding umbrella, drying seat)
+    double weatherMultiplier = 1.0 + (rainFactor * 0.4); // Max 40% increase
+    int adjustedTraffic = (baseTrafficMinutes * weatherMultiplier).round();
+    
+    // Extra prep time for rain (packing gear/covers)
+    int rainPrep = (rainFactor * 15).round();
 
-    return {
-      'leave': outputFormat.format(dt['leave']!),
-      'ready': outputFormat.format(dt['ready']!),
-      'travel_time_text': '${dt['travel']} min'
-    };
-  }
-
-  // ===========================================================================
-  // 3. SMART TIME CALCULATION (DateTime VERSION – notifications)
-  // ===========================================================================
-  Map<String, DateTime> calculateSmartDateTimes(
-    String arrivalTimeStr,
-    int realTravelMinutes,
-    double rainFactor,
-    String mode,
-  ) {
-    final dt = _calculateSmartDateTimesInternal(
-      arrivalTimeStr,
-      realTravelMinutes,
-      rainFactor,
-      mode,
-    );
-
-    return {
-      'leave': dt['leave']!,
-      'ready': dt['ready']!,
-    };
-  }
-
-  // ===========================================================================
-  // INTERNAL (SINGLE SOURCE OF TRUTH)
-  // ===========================================================================
-  Map<String, dynamic> _calculateSmartDateTimesInternal(
-    String arrivalTimeStr,
-    int realTravelMinutes,
-    double rainFactor,
-    String mode,
-  ) {
-    double multiplier = 1.0;
-
-    bool isExposed = mode.toLowerCase().contains('cycle') ||
-        mode.toLowerCase().contains('bike') ||
-        mode.toLowerCase().contains('motor') ||
-        mode.toLowerCase().contains('walk');
-
-    if (rainFactor >= 0.9) {
-      multiplier = isExposed ? 2.0 : 1.5;
-    } else if (rainFactor >= 0.4) {
-      multiplier = isExposed ? 1.5 : 1.2;
-    }
-
-    int finalTravelTime = (realTravelMinutes * multiplier).round();
-
-    // 🔴 CRITICAL FIX: attach date context
-    final now = DateTime.now();
-    final match = RegExp(r'(\d+):(\d+)\s+(AM|PM)').firstMatch(arrivalTimeStr);
-
-    if (match == null) {
-      throw Exception("Invalid time format");
-    }
+    // 3. PARSE ARRIVAL TIME
+    final match = RegExp(r'(\d+):(\d+)\s+(AM|PM)').firstMatch(arriveBy);
+    if (match == null) return {"leave": "08:00 AM", "ready": "07:30 AM"};
 
     int h = int.parse(match.group(1)!);
     int m = int.parse(match.group(2)!);
     if (match.group(3) == "PM" && h < 12) h += 12;
     if (match.group(3) == "AM" && h == 12) h = 0;
 
-    DateTime arrivalTime =
-        DateTime(now.year, now.month, now.day, h, m);
+    DateTime arrival = DateTime(2026, 1, 1, h, m);
 
-    if (arrivalTime.isBefore(now)) {
-      arrivalTime = arrivalTime.add(const Duration(days: 1));
-    }
-
-    DateTime leaveTime =
-        arrivalTime.subtract(Duration(minutes: finalTravelTime));
-
-    DateTime readyTime = leaveTime.subtract(const Duration(minutes: 15));
+    // 4. CALCULATE LEAVE & READY TIMES
+    // Leave = Arrival - Traffic - Base Buffer
+    DateTime leaveTime = arrival.subtract(Duration(minutes: adjustedTraffic + buffer));
+    
+    // Ready = Leave - Packing Time (15m) - Rain Prep
+    DateTime readyTime = leaveTime.subtract(Duration(minutes: 15 + rainPrep));
 
     return {
-      'leave': leaveTime,
-      'ready': readyTime,
-      'travel': finalTravelTime,
+      "leave": _formatTime(leaveTime),
+      "ready": _formatTime(readyTime),
     };
+  }
+
+  String _formatTime(DateTime dt) {
+    int h = dt.hour;
+    String ampm = h >= 12 ? "PM" : "AM";
+    if (h > 12) h -= 12;
+    if (h == 0) h = 12;
+    return "$h:${dt.minute.toString().padLeft(2, '0')} $ampm";
   }
 }
