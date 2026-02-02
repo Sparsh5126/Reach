@@ -32,7 +32,7 @@ class CommuteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDark ? ReachStyles.darkCardBg : ReachStyles.lightCardBg;
+    final bgColor = isDark ? Theme.of(context).cardColor : ReachStyles.lightCard;
     final txtColor = isDark ? ReachStyles.darkText : ReachStyles.lightText;
 
     return GestureDetector(
