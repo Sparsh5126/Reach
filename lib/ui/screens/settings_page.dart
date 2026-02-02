@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../main.dart'; // Access global notifiers
+import '../../main.dart';
 import '../styles.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -34,24 +35,26 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          // 1. FULL SCREEN ALARM
+          // 1. Full Screen Alarm
           SwitchListTile(
             title: const Text("Full Screen Alarm"),
             value: _fullScreenAlarm,
             activeColor: ReachStyles.primaryOrange,
             onChanged: (val) async {
+              HapticFeedback.lightImpact();
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('full_screen_alarm', val);
               setState(() => _fullScreenAlarm = val);
             },
           ),
-          
-          // 2. DARK MODE
+
+          // 2. Dark Mode
           SwitchListTile(
             title: const Text("Dark Mode"),
             value: _isDarkMode,
             activeColor: ReachStyles.primaryOrange,
             onChanged: (val) async {
+              HapticFeedback.lightImpact();
               final prefs = await SharedPreferences.getInstance();
               await prefs.setBool('is_dark_mode', val);
               themeNotifier.value = val ? ThemeMode.dark : ThemeMode.light;
@@ -59,7 +62,7 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
 
-          // 3. DYNAMIC THEME (New!)
+          // 3. Dynamic Theme
           ValueListenableBuilder<bool>(
             valueListenable: dynamicThemeNotifier,
             builder: (context, isDynamic, _) {
@@ -70,6 +73,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 value: isDynamic,
                 activeColor: ReachStyles.primaryOrange,
                 onChanged: (val) async {
+                  HapticFeedback.lightImpact();
                   final prefs = await SharedPreferences.getInstance();
                   await prefs.setBool('is_dynamic_theme', val);
                   dynamicThemeNotifier.value = val;

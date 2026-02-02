@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/commute_model.dart';
 import '../../services/traffic_service.dart';
@@ -14,6 +14,7 @@ class HomeView extends StatelessWidget {
   final Position? currentPos;
   final Function(Commute) onEdit;
   final Function(int) onDelete;
+  final Function(Commute, int) onUndo;
   final Function(Commute) onNavigate;
 
   const HomeView({
@@ -22,6 +23,7 @@ class HomeView extends StatelessWidget {
     this.currentPos,
     required this.onEdit,
     required this.onDelete,
+    required this.onUndo,
     required this.onNavigate,
   });
 
@@ -50,14 +52,17 @@ class HomeView extends StatelessWidget {
                   ),
                   IconButton(
                     icon: const Icon(Icons.settings),
-                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage())),
+                    onPressed: () {
+                      HapticFeedback.lightImpact(); 
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()));
+                    },
                   ),
                 ],
               ),
             );
           }
 
-          // COMMUTE CARDS
+          // COMMUTE CARD
           final c = commutes[index - 1];
           final useLat = currentPos?.latitude ?? c.lat;
           final useLon = currentPos?.longitude ?? c.lon;
@@ -65,7 +70,36 @@ class HomeView extends StatelessWidget {
           return Dismissible(
             key: Key(c.id),
             direction: DismissDirection.endToStart,
-            onDismissed: (_) => onDelete(index - 1),
+            onDismissed: (_) {
+              HapticFeedback.heavyImpact(); 
+              
+              // 1. Capture details BEFORE deleting
+              final deletedItem = c;
+              final deletedIndex = index - 1;
+
+              // 2. Perform Delete
+              onDelete(deletedIndex);
+
+              // 3. Show Undo SnackBar
+              ScaffoldMessenger.of(context).clearSnackBars();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text("${deletedItem.title} deleted"),
+                  behavior: SnackBarBehavior.floating,
+                  margin: const EdgeInsets.all(20),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  action: SnackBarAction(
+                    label: 'Undo',
+                    textColor: ReachStyles.primaryOrange,
+                    onPressed: () {
+                      HapticFeedback.mediumImpact();
+                      onUndo(deletedItem, deletedIndex);
+                    },
+                  ),
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            },
             background: Container(
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.8), borderRadius: BorderRadius.circular(24)),
@@ -115,7 +149,6 @@ class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
   @override
   void initState() {
     super.initState();
-    // Fetch Data
     _dataFuture = Future.wait([
       WeatherService().getWeatherInfo(widget.lat, widget.lon),
       TrafficService().getAdjustedTravelDuration(widget.lat, widget.lon, widget.commute.eLoc),
@@ -127,7 +160,6 @@ class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
     return FutureBuilder<Map<String, dynamic>>(
       future: _dataFuture,
       builder: (context, snapshot) {
-        // DEFAULT STATE (Loading or Error)
         String leaveBy = "...";
         String readyBy = "...";
         String weatherEmoji = "";

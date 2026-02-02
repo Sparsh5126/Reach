@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; 
 import 'package:uuid/uuid.dart';
 import '../../models/commute_model.dart';
 import '../../services/location_service.dart';
@@ -87,6 +88,7 @@ class _AddEditSheetState extends State<AddEditSheet> {
   }
 
   void _selectLocation(LocationResult place) {
+    HapticFeedback.selectionClick();
     setState(() {
       _destinationController.text = place.name;
       _eLoc = place.eLoc; _lat = place.lat; _lon = place.lon;
@@ -109,6 +111,8 @@ class _AddEditSheetState extends State<AddEditSheet> {
       );
       return;
     }
+    
+    HapticFeedback.mediumImpact();
 
     String modeStr = 'car';
     if (_selectedMode == 1) modeStr = 'motorcycle';
@@ -180,8 +184,11 @@ class _AddEditSheetState extends State<AddEditSheet> {
             style: ReachStyles.heading.copyWith(fontSize: 28, color: color)),
         IconButton(
           icon: Icon(_isFavorite ? Icons.favorite : Icons.favorite_border, 
-                     color: _isFavorite ? ReachStyles.accentRed : Colors.grey),
-          onPressed: () => setState(() => _isFavorite = !_isFavorite),
+                      color: _isFavorite ? ReachStyles.accentRed : Colors.grey),
+          onPressed: () {
+             HapticFeedback.selectionClick();
+             setState(() => _isFavorite = !_isFavorite);
+          },
         ),
       ],
     );
@@ -203,13 +210,13 @@ class _AddEditSheetState extends State<AddEditSheet> {
   Widget _buildModeSelector() {
     return Row(
       children: [
-        Expanded(child: _ModeTile(label: "Car", icon: Icons.directions_car, isSelected: _selectedMode == 0, onTap: () => setState(() => _selectedMode = 0))),
+        Expanded(child: _ModeTile(label: "Car", icon: Icons.directions_car, isSelected: _selectedMode == 0, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 0); })), // <--- ADDED HAPTIC
         const SizedBox(width: 8),
-        Expanded(child: _ModeTile(label: "Bike", icon: Icons.two_wheeler, isSelected: _selectedMode == 1, onTap: () => setState(() => _selectedMode = 1))),
+        Expanded(child: _ModeTile(label: "Bike", icon: Icons.two_wheeler, isSelected: _selectedMode == 1, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 1); })), // <--- ADDED HAPTIC
         const SizedBox(width: 8),
-        Expanded(child: _ModeTile(label: "Train", icon: Icons.train, isSelected: _selectedMode == 2, onTap: () => setState(() => _selectedMode = 2))),
+        Expanded(child: _ModeTile(label: "Train", icon: Icons.train, isSelected: _selectedMode == 2, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 2); })), // <--- ADDED HAPTIC
         const SizedBox(width: 8),
-        Expanded(child: _ModeTile(label: "Flight", icon: Icons.flight, isSelected: _selectedMode == 3, onTap: () => setState(() => _selectedMode = 3))),
+        Expanded(child: _ModeTile(label: "Flight", icon: Icons.flight, isSelected: _selectedMode == 3, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 3); })), // <--- ADDED HAPTIC
       ],
     );
   }
@@ -230,7 +237,10 @@ class _AddEditSheetState extends State<AddEditSheet> {
           ),
           Switch(
             value: _isPickup,
-            onChanged: (val) => setState(() => _isPickup = val),
+            onChanged: (val) {
+               HapticFeedback.lightImpact();
+               setState(() => _isPickup = val);
+            },
             activeColor: ReachStyles.primaryOrange,
           ),
         ],
@@ -281,7 +291,10 @@ class _AddEditSheetState extends State<AddEditSheet> {
       children: List.generate(7, (index) {
         bool isSelected = _selectedDays.contains(_fullDays[index]);
         return GestureDetector(
-          onTap: () => setState(() => isSelected ? _selectedDays.remove(_fullDays[index]) : _selectedDays.add(_fullDays[index])),
+          onTap: () {
+             HapticFeedback.selectionClick();
+             setState(() => isSelected ? _selectedDays.remove(_fullDays[index]) : _selectedDays.add(_fullDays[index]));
+          },
           child: Container(
             width: 40, height: 40,
             decoration: BoxDecoration(
@@ -303,6 +316,7 @@ class _AddEditSheetState extends State<AddEditSheet> {
           flex: 1, 
           child: GestureDetector(
             onTap: () async {
+              HapticFeedback.lightImpact();
               final picked = await showTimePicker(context: context, initialTime: _selectedTime);
               if (picked != null) setState(() => _selectedTime = picked);
             },

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../styles.dart';
+import 'package:flutter/services.dart';
 
 class CommuteCard extends StatelessWidget {
   final String title;
@@ -37,7 +37,10 @@ class CommuteCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: onTap,
-      onDoubleTap: onDoubleTap,
+      onDoubleTap: () {
+        HapticFeedback.mediumImpact();
+        onDoubleTap();
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(20),
@@ -101,7 +104,7 @@ class CommuteCard extends StatelessWidget {
     );
   }
 
- // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // LOGIC: SMART DAY FORMATTER
   // ---------------------------------------------------------------------------
   String _formatDays() {
@@ -161,7 +164,10 @@ class CommuteCard extends StatelessWidget {
           ],
         ),
         TextButton.icon(
-          onPressed: onDirections,
+          onPressed: () {
+            HapticFeedback.mediumImpact();
+            onDirections();
+          },
           style: TextButton.styleFrom(
             backgroundColor: ReachStyles.primaryOrange.withOpacity(0.1),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class SlidingNavBar extends StatelessWidget {
   final int selectedIndex;
@@ -88,7 +89,10 @@ class SlidingNavBar extends StatelessWidget {
   Widget _buildTabItem(String label, int index, double width, double height, Color? unselectedColor) {
     bool isSelected = selectedIndex == index;
     return GestureDetector(
-      onTap: () => onTabChange(index),
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTabChange(index);
+      },
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
         width: width,
