@@ -67,7 +67,7 @@ class SlidingNavBar extends StatelessWidget {
                 width: pillWidth,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.orange[800], // Orange pill looks good on both
+                    color: Colors.orange[800],
                     borderRadius: BorderRadius.circular(25),
                   ),
                 ),
@@ -97,12 +97,10 @@ class SlidingNavBar extends StatelessWidget {
           child: AnimatedDefaultTextStyle(
             duration: const Duration(milliseconds: 200),
             style: TextStyle(
-              // Selected is always White (because pill is Orange)
-              // Unselected adapts to the theme
               color: isSelected ? Colors.white : unselectedColor,
               fontWeight: FontWeight.bold,
               fontSize: 15,
-              fontFamily: 'Roboto', // Ensure font consistency
+              fontFamily: 'Roboto',
             ),
             child: Text(label),
           ),

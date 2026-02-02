@@ -57,7 +57,7 @@ void leaveCallback(int id) async {
     id,
     '🚀 LEAVE NOW',
     'Traffic is active. Leave immediately to reach on time.',
-    NotificationDetails( // Removed 'const' to allow dynamic variable
+    NotificationDetails(
       android: AndroidNotificationDetails(
         'reach_alarm',
         'Critical Alarm',

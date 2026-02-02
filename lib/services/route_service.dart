@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
-import 'location_service.dart'; // <--- Auth Source
+import 'location_service.dart'; 
 
 class RouteService {
   // Mappls Distance Matrix API (handles traffic and precise routing)
@@ -10,7 +10,7 @@ class RouteService {
   static Future<int?> getTravelTime({
     required double startLat,
     required double startLon,
-    required String endELoc, // Use eLoc instead of endLat/Lon for Mappls
+    required String endELoc,
     required String mode, 
   }) async {
     // 1. Get the token from our LocationService logic

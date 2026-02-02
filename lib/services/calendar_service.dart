@@ -39,7 +39,6 @@ class CalendarService {
 
     List<CalendarEventResult> relevantEvents = [];
     final now = DateTime.now();
-    // CHANGED: Increased to 3 days to catch events comfortably
     final rangeEnd = now.add(const Duration(days: 3)); 
 
     debugPrint("CALENDAR: Checking events from $now to $rangeEnd");

@@ -1,26 +1,26 @@
 class Commute {
   final String id;
   final String title;       // This is the Address/Location Name
-  final String? customTitle; // NEW: User's nickname ("Work", "Gym")
+  final String? customTitle; // User's nickname ("Work", "Gym")
   final String time;
   final String mode;
   final List<String> days;
   final double lat;
   final double lon;
   final String? eLoc;
-  final bool isFavorite;     // NEW: Pin to top
+  final bool isFavorite;     // Pin to top
 
   Commute({
     required this.id,
     required this.title,
-    this.customTitle,        // NEW
+    this.customTitle,
     required this.time,
     required this.mode,
     required this.days,
     required this.lat,
     required this.lon,
     this.eLoc,
-    this.isFavorite = false, // Default to false
+    this.isFavorite = false,
   });
 
   // Convert to Map for saving
@@ -28,7 +28,7 @@ class Commute {
     return {
       'id': id,
       'title': title,
-      'customTitle': customTitle, // NEW
+      'customTitle': customTitle,
       'time': time,
       'mode': mode,
       'days': days,
@@ -44,7 +44,7 @@ class Commute {
     return Commute(
       id: map['id'],
       title: map['title'],
-      customTitle: map['customTitle'], // NEW
+      customTitle: map['customTitle'],
       time: map['time'],
       mode: map['mode'],
       days: List<String>.from(map['days']),

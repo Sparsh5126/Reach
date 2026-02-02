@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter/services.dart'; // REQUIRED FOR METHOD CHANNEL
+import 'package:flutter/services.dart';
 
 class AlarmScreen extends StatefulWidget {
   final String payload;
@@ -38,7 +38,6 @@ class _AlarmScreenState extends State<AlarmScreen> {
     // 2. Vibrate Loop (Using Native Bridge)
     while (_isAlarmActive && mounted) {
       try {
-        // Calls the Kotlin code we just wrote
         await platform.invokeMethod('vibrate');
       } on PlatformException catch (e) {
         print("Failed to vibrate: '${e.message}'.");

@@ -1,14 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // REQUIRED
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class LocationResult {
   final String name;
   final String address;
   final double lat;
   final double lon;
-  final String eLoc; // Required for Mappls navigation and traffic
+  final String eLoc;
 
   LocationResult({
     required this.name, 
@@ -68,7 +68,6 @@ class LocationService {
   }
 
   // --- SEARCH PLACES ---
-  // Returns clean List<LocationResult> for the UI
   static Future<List<LocationResult>> searchPlaces(String query) async {
     if (query.length < 3) return [];
 
@@ -88,7 +87,6 @@ class LocationService {
         },
       );
 
-      // If token expired (401), refresh once and retry
       if (response.statusCode == 401) {
         await _refreshMapplsToken();
         return searchPlaces(query); 
@@ -106,7 +104,7 @@ class LocationService {
             address: s['placeAddress'] ?? "",
             lat: double.tryParse(s['latitude'].toString()) ?? 0.0,
             lon: double.tryParse(s['longitude'].toString()) ?? 0.0,
-            eLoc: s['eLoc'] ?? "", // The critical Mappls ID
+            eLoc: s['eLoc'] ?? "",
           );
         }).toList();
       }
