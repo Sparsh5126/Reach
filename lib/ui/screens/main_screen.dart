@@ -127,7 +127,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     await NotificationService().stopAlarm(c.id.hashCode);
   }
 
-  // --- NEW UNDO LOGIC ---
   void _handleUndo(Commute c, int index) {
     _saveCommute(c);
   }
@@ -266,16 +265,30 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         child: Wrap(
           children: [
             const ListTile(title: Text("Navigate with", style: TextStyle(fontWeight: FontWeight.bold))),
+            
+            // --- GOOGLE MAPS FIX ---
             ListTile(
               leading: const Icon(Icons.map, color: Colors.blue),
               title: const Text("Google Maps"),
               onTap: () async {
                 HapticFeedback.mediumImpact(); 
                 Navigator.pop(context);
-                final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=$query");
-                if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
+                
+                final String query = Uri.encodeComponent(c.title);
+                final Uri url = Uri.parse("https://www.google.com/maps/search/?api=1&query=$query");
+                
+                try {
+                  if (await canLaunchUrl(url)) {
+                    await launchUrl(url, mode: LaunchMode.externalApplication);
+                  } else {
+                    await launchUrl(url);
+                  }
+                } catch (e) {
+                   await launchUrl(url);
+                }
               },
             ),
+
             ListTile(
               leading: const Icon(Icons.explore, color: Colors.redAccent),
               title: const Text("Mappls (MapMyIndia)"),
