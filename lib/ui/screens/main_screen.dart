@@ -272,7 +272,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               onTap: () async {
                 HapticFeedback.mediumImpact(); 
                 Navigator.pop(context);
-                final url = Uri.parse("http://googleusercontent.com/maps.google.com/search?q=${Uri.encodeComponent(c.title)}");
+                final url = Uri.parse("https://www.google.com/maps/search/?api=1&query=$query");
                 if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication);
               },
             ),

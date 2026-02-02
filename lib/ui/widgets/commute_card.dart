@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../styles.dart';
 
 class CommuteCard extends StatelessWidget {
   final String title;
