@@ -1,59 +1,68 @@
 # Reach 📍
-**Never miss your commute again.**
+**Never reach late. The Smart Commute Alarm that works backwards.**
 
-**Reach.** is a context-aware alarm application designed to eliminate "late-for-arrival" anxiety. By integrating live traffic and meteorological data, it dynamically calculates your departure time, ensuring you reach your destination on time, every time.
+Reach is a smart commute assistant built with Flutter. Unlike standard alarms, Reach focuses on **when you need to arrive**, calculating your precise **"Leave By"** time dynamically based on real-time traffic, weather conditions, and your chosen mode of transport.
 
----
-
-## 📱 User Interface
-
-<p align="center">
-  <img src="screenshots/home-page.jpeg" height="450px" style="margin-right: 10px;" />
-  <img src="screenshots/new-trip.jpeg" height="450px" style="margin-right: 10px;" />
-  <img src="screenshots/new-trip-car.jpeg" height="450px" style="margin-right: 10px;" />
-  <img src="screenshots/new-trip-flight.jpeg" height="450px" />
-</p>
-
-<p align="center">
-  <i>Dashboard &nbsp; | &nbsp; Train Mode &nbsp; | &nbsp; Car Mode &nbsp; | &nbsp; Flight Pickup</i>
-</p>
+> **"Don't leave when you think you should. Leave when you NEED to."**
 
 ---
 
-## 🕹️ How to Interact
+## 🚀 Features
 
-To keep the interface clean and minimal, **Reach.** utilizes intuitive gestures for navigation and management:
+* **🧠 Smart Time Calculation:** Works backwards from your *Target Arrival Time*.
+* **⛅ Weather & Traffic Aware:** automatically adds buffer time if it detects rain or heavy traffic (via Mappls/MapMyIndia & OpenWeather).
+* **🔔 Dual-Stage Alarms:**
+    1.  **"Pack Up" Alert:** Nudges you 15 minutes before departure so you have time to get ready.
+    2.  **"Leave Now" Alarm:** Full-screen critical alert when traffic dictates you must move *now*.
+* **📅 Calendar Sync:** Automatically scans your device calendar for upcoming events and suggests setting reach alarms for them.
+* **🌗 Dynamic Theming:** UI adapts automatically based on the time of day (Navy for Morning, Grey for Day, Pitch Black for Night).
+* **📍 Navigation Handoff:** One-tap navigation to Google Maps or Mappls.
+* **⚡ Premium Feel:** Haptic feedback on interactions, swipe-to-delete with undo, and smooth animations.
 
-* **Single Tap**: Tap any commute card to instantly launch Google Maps navigation to that destination.
-* **Double Tap**: Double tap a card to open the "Edit" menu and adjust your arrival time or travel mode.
-* **Swipe Left**: Swipe a commute card to the left to delete it from your schedule.
-* **Add New**: Use the orange "Add New" button in the bottom navigation bar to search for a new destination.
+## 🛠️ Tech Stack
 
----
+* **Framework:** Flutter (Dart)
+* **State Management:** Native `setState` & `WidgetsBindingObserver` for lifecycle management.
+* **Background Services:**
+    * `android_alarm_manager_plus` for precise background execution.
+    * `flutter_local_notifications` for heads-up alerts.
+* **Location & APIs:** `geolocator`, `http` (Custom Traffic/Weather Services).
+* **Persistence:** `shared_preferences` for local data caching.
 
-## 🧠 Key Features in v2.0
+## 📸 Screenshots
 
-* **Dynamic Traffic Engine**: Integrates with the **OSRM API** to calculate real-world travel duration based on live traffic between coordinates.
-* **Weather-Aware Logic**: Automatically detects rain via **OpenWeather API** and adds a 15–30 minute safety cushion to the schedule.
-* **Motorcycle Optimization**: Specialized logic for bikers, doubling the rain buffer to account for the increased complexity of riding in inclement weather.
-* **Pickup/Departure Toggle**: Specific modes for trains and flights that include extra buffers for airport/station navigation.
-* **The "Pack" Window**: A custom 10-minute preparation notification triggered before the actual departure alarm.
-* **Exact Alarm Reliability**: Implements Android "Exact Alarm" permissions to ensure alerts trigger precisely, even when the device is idle.
+| **Home (Light)** | **Home (Dark)** |
+|:---:|:---:|
+| <img src="./screenshots/1.jpeg" width="300" /> | <img src="./screenshots/2.jpeg" width="300" /> |
 
----
+| **Add Trip (Light)** | **Add Trip (Dark)** |
+|:---:|:---:|
+| <img src="./screenshots/3.jpeg" width="300" /> | <img src="./screenshots/4.jpeg" width="300" /> |
 
-## 🛠 Tech Stack
+## 🏁 Getting Started
 
-* **Frontend**: Flutter (Dart) with a custom high-contrast dark theme.
-* **APIs**: OSRM (Routing), OpenWeather (Weather), Photon (Geocoding Search).
-* **Storage**: **SharedPreferences** for persistent local schedules.
-* **Notifications**: `flutter_local_notifications` with `fullScreenIntent` for system-level alarms.
+1.  **Clone the repo:**
+    ```bash
+    git clone [https://github.com/yourusername/reach.git](https://github.com/yourusername/reach.git)
+    ```
+2.  **Install dependencies:**
+    ```bash
+    flutter pub get
+    ```
+3.  **Setup Keys (Optional):**
+    Create a `.env` file in the root and add your API keys:
+    ```env
+    MAPPLS_API_KEY=your_key_here
+    ```
+4.  **Run the app:**
+    ```bash
+    flutter run
+    ```
 
----
+## 🤝 Contributing
 
-## 🚀 Installation
+Contributions are welcome! Please fork the repository and submit a pull request.
 
-1.  **Download**: Grab the latest APK from the [Releases](https://github.com/Sparsh5126/Reach/releases) section.
-2.  **Permissions**: Grant "Alarms & Reminders" when prompted to enable exact scheduling.
+## 📄 License
 
----
+This project is licensed under the MIT License.

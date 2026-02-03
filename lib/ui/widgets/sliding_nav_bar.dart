@@ -16,9 +16,9 @@ class SlidingNavBar extends StatelessWidget {
     // --- THEME COLORS ---
     final isDark = Theme.of(context).brightness == Brightness.dark;
     
-    // Background: Dark Grey (Dark Mode) vs White (Light Mode)
+    // Background: Use Dynamic Card Color
     final bgColor = isDark 
-        ? const Color(0xFF1E1E1E).withOpacity(0.95) 
+        ? Theme.of(context).cardColor.withOpacity(0.95) 
         : Colors.white.withOpacity(0.95);
         
     // Border: Subtle white (Dark) vs Subtle grey (Light)
@@ -26,11 +26,11 @@ class SlidingNavBar extends StatelessWidget {
         ? Colors.white.withOpacity(0.05) 
         : Colors.black.withOpacity(0.05);
 
-    // Text: Grey (Dark) vs Dark Grey (Light) when unselected
+    // Text Colors
     final unselectedTextColor = isDark ? Colors.grey[500] : Colors.grey[600];
     
-    // Shadow: Add a subtle shadow in Light Mode to lift it off the white background
-    final List<BoxShadow> shadows = [
+    // Shadow: Lift the entire bar slightly
+    final List<BoxShadow> barShadows = [
       BoxShadow(
         color: Colors.black.withOpacity(isDark ? 0.4 : 0.1),
         blurRadius: 15,
@@ -44,12 +44,12 @@ class SlidingNavBar extends StatelessWidget {
     return Container(
       width: totalWidth,
       height: totalHeight,
-      padding: const EdgeInsets.all(5),
+      padding: const EdgeInsets.all(5), // Padding creates the "floating" effect
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(100), // Max radius for outer container
         border: Border.all(color: borderColor),
-        boxShadow: shadows,
+        boxShadow: barShadows,
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -59,6 +59,7 @@ class SlidingNavBar extends StatelessWidget {
 
           return Stack(
             children: [
+              // --- THE MOVING ORANGE PILL ---
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOutBack,
@@ -69,10 +70,19 @@ class SlidingNavBar extends StatelessWidget {
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.orange[800],
-                    borderRadius: BorderRadius.circular(25),
+                    borderRadius: BorderRadius.circular(100), 
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.orange.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      )
+                    ],
                   ),
                 ),
               ),
+              
+              // --- TAB TEXT ITEMS ---
               Row(
                 children: [
                   _buildTabItem("Commutes", 0, pillWidth, innerHeight, unselectedTextColor),

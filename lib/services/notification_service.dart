@@ -5,21 +5,19 @@ import 'dart:io';
 import 'dart:async';
 
 // -----------------------------------------------------------------------------
-// BACKGROUND CALLBACKS
+// REAL COMMUTE CALLBACKS (Do Not Touch)
 // -----------------------------------------------------------------------------
 @pragma('vm:entry-point')
 void packCallback(int id) async {
   final plugin = FlutterLocalNotificationsPlugin();
-  
   await plugin.initialize(const InitializationSettings(
     android: AndroidInitializationSettings('@mipmap/ic_launcher'),
   ));
 
-  // 1. Show the Pack Notification
   await plugin.show(
     id,
     '🎒 GET READY',
-    'Start preparing to leave.',
+    'Start preparing to leave. Traffic check initiated.',
     const NotificationDetails(
       android: AndroidNotificationDetails(
         'reach_alarm',
@@ -32,29 +30,73 @@ void packCallback(int id) async {
     ),
   );
 
-  // 2. REDUNDANCY: Schedule/Reinforce Leave Alarm (15 mins later)
-  // We assume PackID was (BaseID + 1), so LeaveID is (id - 1)
+  // REAL LOGIC: Schedule Leave Alarm 15 mins later
   final leaveTime = DateTime.now().add(const Duration(minutes: 15));
-  
   await AndroidAlarmManager.oneShotAt(
     leaveTime,
-    id - 1, // Target the main Leave Alarm ID
+    id - 1, 
     leaveCallback,
     exact: true,
     wakeup: true,
-    alarmClock: true,
+    alarmClock: true, 
     allowWhileIdle: true,
   );
 }
 
 @pragma('vm:entry-point')
 void leaveCallback(int id) async {
+  _triggerFullAlarm(id, "🚀 LEAVE NOW", "Traffic is active. Leave immediately.");
+}
+
+// -----------------------------------------------------------------------------
+// 🧪 SIMULATION CALLBACKS (For Testing Only)
+// -----------------------------------------------------------------------------
+@pragma('vm:entry-point')
+void testPackCallback(int id) async {
   final plugin = FlutterLocalNotificationsPlugin();
-  
-  // --- CHECK USER SETTINGS ---
-  // We must load prefs here because this runs in the background isolate
+  await plugin.initialize(const InitializationSettings(
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+  ));
+
+  await plugin.show(
+    id,
+    '🧪 TEST: GET READY',
+    'This simulates the Pack Alarm. Next alarm in 10s...',
+    const NotificationDetails(
+      android: AndroidNotificationDetails(
+        'reach_alarm',
+        'Critical Alarm',
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+      ),
+    ),
+  );
+
+  // TEST LOGIC: Schedule Leave Alarm 10 SECONDS later (instead of 15 mins)
+  final leaveTime = DateTime.now().add(const Duration(seconds: 10));
+  await AndroidAlarmManager.oneShotAt(
+    leaveTime,
+    id - 1, 
+    testLeaveCallback, // Calls the test version
+    exact: true,
+    wakeup: true,
+    alarmClock: true, 
+    allowWhileIdle: true,
+  );
+}
+
+@pragma('vm:entry-point')
+void testLeaveCallback(int id) async {
+  _triggerFullAlarm(id, "🧪 TEST: LEAVE NOW", "Simulation Complete. The chain works!");
+}
+
+// Helper to avoid duplicate code
+Future<void> _triggerFullAlarm(int id, String title, String body) async {
+  final plugin = FlutterLocalNotificationsPlugin();
   final prefs = await SharedPreferences.getInstance();
-  final bool useFullScreen = prefs.getBool('full_screen_alarm') ?? true; // Default: ON
+  final bool useFullScreen = prefs.getBool('full_screen_alarm') ?? true;
 
   await plugin.initialize(const InitializationSettings(
     android: AndroidInitializationSettings('@mipmap/ic_launcher'),
@@ -62,18 +104,15 @@ void leaveCallback(int id) async {
 
   await plugin.show(
     id,
-    '🚀 LEAVE NOW',
-    'Traffic is active. Leave immediately to reach on time.',
+    title,
+    body,
     NotificationDetails(
       android: AndroidNotificationDetails(
         'reach_alarm',
         'Critical Alarm',
         importance: Importance.max,
         priority: Priority.high,
-        
-        // --- DYNAMIC TOGGLE ---
         fullScreenIntent: useFullScreen, 
-        
         category: AndroidNotificationCategory.alarm,
         audioAttributesUsage: AudioAttributesUsage.alarm,
         playSound: true,
@@ -83,6 +122,9 @@ void leaveCallback(int id) async {
   );
 }
 
+// -----------------------------------------------------------------------------
+// SERVICE CLASS
+// -----------------------------------------------------------------------------
 class NotificationService {
   static final NotificationService _i = NotificationService._internal();
   factory NotificationService() => _i;
@@ -90,7 +132,6 @@ class NotificationService {
 
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   final StreamController<String?> payloadStream = StreamController<String?>.broadcast();
-  FlutterLocalNotificationsPlugin get plugin => _plugin;
 
   Future<void> init() async {
     await _plugin.initialize(
@@ -126,46 +167,38 @@ class NotificationService {
     }
   }
 
-  // Schedule PACK (Ready) Notification
-  Future<void> schedulePackNotification(int id, String title, DateTime targetTime) async {
-    final now = DateTime.now();
-    // Ensure future time
-    if (targetTime.isBefore(now.add(const Duration(minutes: 1)))) {
-      targetTime = now.add(const Duration(minutes: 1));
-    }
-    
+  // --- START SIMULATION ---
+  Future<void> startSimulation() async {
+    // Schedules the "Pack" test for 10 seconds from now
     await AndroidAlarmManager.oneShotAt(
-      targetTime,
-      id,
-      packCallback,
+      DateTime.now().add(const Duration(seconds: 10)),
+      777, // Test ID
+      testPackCallback,
       exact: true,
       wakeup: true,
-      alarmClock: false,
+      alarmClock: true,
     );
   }
 
-  // Schedule LEAVE Alarm
-  Future<void> scheduleLeaveAlarm(int id, DateTime targetTime) async {
-    // Ensure future time (relative to now)
+  Future<void> schedulePackNotification(int id, String title, DateTime targetTime) async {
     final now = DateTime.now();
-    if (targetTime.isBefore(now)) {
-       // If time passed, assume tomorrow
-       targetTime = targetTime.add(const Duration(days: 1));
-    }
+    if (targetTime.isBefore(now)) targetTime = targetTime.add(const Duration(days: 1));
+    await AndroidAlarmManager.oneShotAt(targetTime, id, packCallback, exact: true, wakeup: true, alarmClock: false);
+  }
 
-    await AndroidAlarmManager.oneShotAt(
-      targetTime,
-      id,
-      leaveCallback, 
-      exact: true,
-      wakeup: true,
-      alarmClock: true, 
-      allowWhileIdle: true,
-    );
+  Future<void> scheduleLeaveAlarm(int id, DateTime targetTime) async {
+    final now = DateTime.now();
+    if (targetTime.isBefore(now)) targetTime = targetTime.add(const Duration(days: 1));
+    await AndroidAlarmManager.oneShotAt(targetTime, id, leaveCallback, exact: true, wakeup: true, alarmClock: true, allowWhileIdle: true);
   }
 
   Future<void> stopAlarm(int id) async {
     await AndroidAlarmManager.cancel(id);
     await _plugin.cancel(id);
+  }
+  
+  Future<void> showTestNotification() async {
+     // Kept for simple instant testing if needed
+     await _plugin.show(888, '🔔 Instant Test', 'Permissions are good.', const NotificationDetails(android: AndroidNotificationDetails('reach_alarm', 'Critical Alarm', importance: Importance.max, priority: Priority.high)));
   }
 }
