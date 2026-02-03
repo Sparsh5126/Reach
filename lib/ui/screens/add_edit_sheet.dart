@@ -42,7 +42,6 @@ class _AddEditSheetState extends State<AddEditSheet> {
   }
 
   void _initializeData() {
-    // 1. Restore Mode
     if (widget.existingCommute != null) {
       final m = widget.existingCommute!.mode;
       if (m == 'motorcycle') _selectedMode = 1;
@@ -66,7 +65,7 @@ class _AddEditSheetState extends State<AddEditSheet> {
 
     _titleController = TextEditingController(text: widget.existingCommute?.customTitle ?? "");
     _destinationController = TextEditingController(text: initialTitle);
-    _selectedTime = _parseTime(widget.existingCommute?.time) ?? const TimeOfDay(hour: 8, minute: 30);
+    _selectedTime = _parseTime(widget.existingCommute?.time) ?? const TimeOfDay(hour: 9, minute: 0);
     _selectedDays = List.from(widget.existingCommute?.days ?? []);
     _lat = initialLat;
     _lon = initialLon;
@@ -135,7 +134,8 @@ class _AddEditSheetState extends State<AddEditSheet> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? ReachStyles.darkText : ReachStyles.lightText;
-    final inputColor = isDark ? Colors.grey[900] : Colors.grey[200];
+    final Color inputColor = isDark ? Theme.of(context).cardColor : Colors.grey[100]!;
+    final Color borderColor = isDark ? Colors.white.withOpacity(0.05) : Colors.transparent;
 
     Widget content = SingleChildScrollView(
       child: Column(
@@ -143,9 +143,9 @@ class _AddEditSheetState extends State<AddEditSheet> {
         children: [
           _buildHeader(textColor),
           const SizedBox(height: 20),
-          _buildTitleInput(textColor, inputColor!),
+          _buildTitleInput(textColor, inputColor, borderColor),
           const SizedBox(height: 16),
-          _buildModeSelector(),
+          _buildModeSelector(inputColor),
           const SizedBox(height: 16),
           
           if (_selectedMode >= 2) ...[
@@ -153,8 +153,8 @@ class _AddEditSheetState extends State<AddEditSheet> {
             const SizedBox(height: 16),
           ],
 
-          _buildDestinationInput(textColor, inputColor),
-          _buildSuggestionsList(textColor, isDark),
+          _buildDestinationInput(textColor, inputColor, borderColor),
+          _buildSuggestionsList(textColor, isDark, inputColor),
           const SizedBox(height: 24),
           _buildDaySelector(inputColor),
           const SizedBox(height: 24),
@@ -194,29 +194,31 @@ class _AddEditSheetState extends State<AddEditSheet> {
     );
   }
 
-  Widget _buildTitleInput(Color textColor, Color inputColor) {
+  Widget _buildTitleInput(Color textColor, Color inputColor, Color borderColor) {
     return TextField(
       controller: _titleController,
       style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
       decoration: InputDecoration(
         hintText: "Trip Name (e.g. Work)",
         hintStyle: const TextStyle(color: Colors.grey),
-        filled: true, fillColor: inputColor,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+        filled: true, 
+        fillColor: inputColor,
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: borderColor)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: ReachStyles.primaryOrange, width: 2)),
       ),
     );
   }
 
-  Widget _buildModeSelector() {
+  Widget _buildModeSelector(Color unselectedColor) {
     return Row(
       children: [
-        Expanded(child: _ModeTile(label: "Car", icon: Icons.directions_car, isSelected: _selectedMode == 0, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 0); })), // <--- ADDED HAPTIC
+        Expanded(child: _ModeTile(label: "Car", icon: Icons.directions_car, isSelected: _selectedMode == 0, unselectedColor: unselectedColor, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 0); })), 
         const SizedBox(width: 8),
-        Expanded(child: _ModeTile(label: "Bike", icon: Icons.two_wheeler, isSelected: _selectedMode == 1, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 1); })), // <--- ADDED HAPTIC
+        Expanded(child: _ModeTile(label: "Bike", icon: Icons.two_wheeler, isSelected: _selectedMode == 1, unselectedColor: unselectedColor, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 1); })), 
         const SizedBox(width: 8),
-        Expanded(child: _ModeTile(label: "Train", icon: Icons.train, isSelected: _selectedMode == 2, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 2); })), // <--- ADDED HAPTIC
+        Expanded(child: _ModeTile(label: "Train", icon: Icons.train, isSelected: _selectedMode == 2, unselectedColor: unselectedColor, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 2); })), 
         const SizedBox(width: 8),
-        Expanded(child: _ModeTile(label: "Flight", icon: Icons.flight, isSelected: _selectedMode == 3, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 3); })), // <--- ADDED HAPTIC
+        Expanded(child: _ModeTile(label: "Flight", icon: Icons.flight, isSelected: _selectedMode == 3, unselectedColor: unselectedColor, onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedMode = 3); })), 
       ],
     );
   }
@@ -248,7 +250,7 @@ class _AddEditSheetState extends State<AddEditSheet> {
     );
   }
 
-  Widget _buildDestinationInput(Color textColor, Color inputColor) {
+  Widget _buildDestinationInput(Color textColor, Color inputColor, Color borderColor) {
       return TextField(
             controller: _destinationController,
             onChanged: _onSearchChanged,
@@ -256,20 +258,22 @@ class _AddEditSheetState extends State<AddEditSheet> {
             decoration: InputDecoration(
               hintText: "Search Destination",
               hintStyle: const TextStyle(color: Colors.grey),
-              filled: true, fillColor: inputColor,
+              filled: true, 
+              fillColor: inputColor,
               prefixIcon: Icon(Icons.search, color: ReachStyles.primaryOrange),
               suffixIcon: _isSearching ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)) : null,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: borderColor)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: ReachStyles.primaryOrange, width: 2)),
             ),
           );
   }
 
-  Widget _buildSuggestionsList(Color textColor, bool isDark) {
+  Widget _buildSuggestionsList(Color textColor, bool isDark, Color bgColor) {
     if (_suggestions.isEmpty) return const SizedBox.shrink();
     return Container(
       margin: const EdgeInsets.only(top: 8),
       constraints: const BoxConstraints(maxHeight: 200),
-      decoration: BoxDecoration(color: isDark ? Colors.grey[850] : Colors.white, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12)),
       child: ListView.builder(
         shrinkWrap: true,
         itemCount: _suggestions.length,
@@ -380,22 +384,26 @@ class _ModeTile extends StatelessWidget {
   final String label;
   final IconData icon;
   final bool isSelected;
+  final Color unselectedColor;
   final VoidCallback onTap;
 
-  const _ModeTile({required this.label, required this.icon, required this.isSelected, required this.onTap});
+  const _ModeTile({
+    required this.label, 
+    required this.icon, 
+    required this.isSelected, 
+    required this.unselectedColor, 
+    required this.onTap
+  });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isSelected ? ReachStyles.primaryOrange : (isDark ? Colors.grey[900] : Colors.grey[200]);
     final fg = isSelected ? Colors.white : Colors.grey;
-
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(color: isSelected ? ReachStyles.primaryOrange : unselectedColor, borderRadius: BorderRadius.circular(12)),
         child: Column(children: [Icon(icon, color: fg, size: 22), Text(label, style: TextStyle(color: fg, fontSize: 10, fontWeight: FontWeight.bold))]),
       ),
     );

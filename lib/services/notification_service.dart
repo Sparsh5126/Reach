@@ -1,21 +1,25 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // REQUIRED
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'dart:async';
 
+// -----------------------------------------------------------------------------
+// BACKGROUND CALLBACKS
+// -----------------------------------------------------------------------------
 @pragma('vm:entry-point')
 void packCallback(int id) async {
   final plugin = FlutterLocalNotificationsPlugin();
-
+  
   await plugin.initialize(const InitializationSettings(
     android: AndroidInitializationSettings('@mipmap/ic_launcher'),
   ));
 
+  // 1. Show the Pack Notification
   await plugin.show(
     id,
     '🎒 GET READY',
-    'Start preparing to leave',
+    'Start preparing to leave.',
     const NotificationDetails(
       android: AndroidNotificationDetails(
         'reach_alarm',
@@ -28,15 +32,18 @@ void packCallback(int id) async {
     ),
   );
 
-  // Chain Leave Alarm (15 mins later)
+  // 2. REDUNDANCY: Schedule/Reinforce Leave Alarm (15 mins later)
+  // We assume PackID was (BaseID + 1), so LeaveID is (id - 1)
   final leaveTime = DateTime.now().add(const Duration(minutes: 15));
+  
   await AndroidAlarmManager.oneShotAt(
     leaveTime,
-    id + 1,
+    id - 1, // Target the main Leave Alarm ID
     leaveCallback,
     exact: true,
     wakeup: true,
-    alarmClock: false,
+    alarmClock: true,
+    allowWhileIdle: true,
   );
 }
 
@@ -45,7 +52,7 @@ void leaveCallback(int id) async {
   final plugin = FlutterLocalNotificationsPlugin();
   
   // --- CHECK USER SETTINGS ---
-  // We must load prefs here because this runs in the background
+  // We must load prefs here because this runs in the background isolate
   final prefs = await SharedPreferences.getInstance();
   final bool useFullScreen = prefs.getBool('full_screen_alarm') ?? true; // Default: ON
 
@@ -99,6 +106,7 @@ class NotificationService {
       'reach_alarm',
       'Critical Alarm',
       importance: Importance.max,
+      playSound: true,
     );
 
     await _plugin
@@ -111,11 +119,21 @@ class NotificationService {
     }
   }
 
+  Future<void> requestPermissions() async {
+    if (Platform.isAndroid) {
+      await _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
+    }
+  }
+
+  // Schedule PACK (Ready) Notification
   Future<void> schedulePackNotification(int id, String title, DateTime targetTime) async {
     final now = DateTime.now();
+    // Ensure future time
     if (targetTime.isBefore(now.add(const Duration(minutes: 1)))) {
       targetTime = now.add(const Duration(minutes: 1));
     }
+    
     await AndroidAlarmManager.oneShotAt(
       targetTime,
       id,
@@ -126,7 +144,15 @@ class NotificationService {
     );
   }
 
+  // Schedule LEAVE Alarm
   Future<void> scheduleLeaveAlarm(int id, DateTime targetTime) async {
+    // Ensure future time (relative to now)
+    final now = DateTime.now();
+    if (targetTime.isBefore(now)) {
+       // If time passed, assume tomorrow
+       targetTime = targetTime.add(const Duration(days: 1));
+    }
+
     await AndroidAlarmManager.oneShotAt(
       targetTime,
       id,

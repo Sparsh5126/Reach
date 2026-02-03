@@ -12,30 +12,22 @@ class _TrafficCacheItem {
 
 class TrafficService {
   // STATIC MEMORY CACHE
-  // Maps "lat_lon_eloc" -> Duration
   static final Map<String, _TrafficCacheItem> _cache = {};
-  
-  // How long to trust the data before fetching again (e.g., 5 minutes)
   static const int _cacheDurationMinutes = 5;
 
   Future<int> getAdjustedTravelDuration(double startLat, double startLon, String? destELoc) async {
-    if (destELoc == null) return 20; // Default if no location
+    if (destELoc == null) return 20; 
 
-    // 1. Generate a unique key for this trip
     final String cacheKey = "${startLat.toStringAsFixed(3)}_${startLon.toStringAsFixed(3)}_$destELoc";
 
-    // 2. Check Cache
     if (_cache.containsKey(cacheKey)) {
       final item = _cache[cacheKey]!;
       final age = DateTime.now().difference(item.timestamp).inMinutes;
-      
-      // If data is fresh (less than 5 mins old), return it immediately (Battery Save!)
       if (age < _cacheDurationMinutes) {
         return item.duration;
       }
     }
 
-    // 3. Fetch Fresh Data (Only if needed)
     final String? apiKey = dotenv.env['MAPPLS_API_KEY'];
     if (apiKey == null) return 20;
 
@@ -50,21 +42,19 @@ class TrafficService {
           final durationSeconds = data['routes'][0]['duration'] as num;
           final durationMinutes = (durationSeconds / 60).round();
           
-          // 4. Save to Cache
           _cache[cacheKey] = _TrafficCacheItem(durationMinutes, DateTime.now());
           
           return durationMinutes;
         }
       }
     } catch (e) {
-      // On error, return cached value if it exists (even if old), else default
       if (_cache.containsKey(cacheKey)) return _cache[cacheKey]!.duration;
     }
     return 35; // Fallback
   }
 
   Map<String, String> calculateSmartTimes(String title, String arriveTimeStr, int travelMinutes, double rainFactor, String mode) {
-    // Parse Arrive Time
+    // 1. Parse Arrive Time
     final now = DateTime.now();
     int targetHour = 9;
     int targetMinute = 0;
@@ -78,15 +68,29 @@ class TrafficService {
       if (timeParts[1] == "AM" && targetHour == 12) targetHour = 0;
     } catch (_) {}
 
-    // Calculate Buffers
-    int rainBuffer = (travelMinutes * rainFactor).round(); 
+    // 2. Calculate Real Buffers
+    // - Rain Buffer: Extra time due to rain
+    // - Parking: Fixed time to find spot
+    // - Traffic Safety: Always add 15 mins for unpredictable jams
+    
+    int rainBuffer = 0;
+    if (rainFactor > 1.0) {
+      rainBuffer = (travelMinutes * (rainFactor - 1.0)).round();
+    }
+    
     int parkingBuffer = (mode == 'car') ? 10 : 2;
-    int totalCommute = travelMinutes + rainBuffer + parkingBuffer;
+    int safetyBuffer = 15;
+
+    int totalCommute = travelMinutes + rainBuffer + parkingBuffer + safetyBuffer;
 
     DateTime arriveTime = DateTime(now.year, now.month, now.day, targetHour, targetMinute);
+    // If time passed, assume tomorrow
     if (arriveTime.isBefore(now)) arriveTime = arriveTime.add(const Duration(days: 1));
 
+    // 3. Subtract to find Leave Time
     final leaveTime = arriveTime.subtract(Duration(minutes: totalCommute));
+    
+    // 4. Subtract 15 mins more for "Pack/Ready" time
     final readyTime = leaveTime.subtract(const Duration(minutes: 15));
 
     return {
