@@ -8,11 +8,17 @@ class ReachStyles {
   static const Color accentRed = Colors.redAccent;
 
   // ---------------------------------------------------------------------------
+  // THEME CONSTANTS (NAVY DEFAULT)
+  // ---------------------------------------------------------------------------
+  static const Color navyBackground = Color(0xFF0F172A); // Deep Navy
+  static const Color navyCard = Color(0xFF1E293B);       // Slate Navy
+
+  // ---------------------------------------------------------------------------
   // DYNAMIC BACKGROUNDS (DARK)
   // ---------------------------------------------------------------------------
   static Color get dynamicDarkBg {
     final hour = DateTime.now().hour;
-    if (hour >= 5 && hour < 12) return const Color(0xFF0F172A); // Morning: Deep Navy
+    if (hour >= 5 && hour < 12) return navyBackground; // Morning: Deep Navy
     if (hour >= 12 && hour < 18) return const Color(0xFF1C1C1E); // Day: Standard Grey
     return const Color(0xFF000000); // Night: Pure Black
   }
@@ -22,7 +28,7 @@ class ReachStyles {
   // ---------------------------------------------------------------------------
   static Color get dynamicDarkCard {
     final hour = DateTime.now().hour;
-    if (hour >= 5 && hour < 12) return const Color(0xFF1E293B); // Morning: Slate Card
+    if (hour >= 5 && hour < 12) return navyCard; // Morning: Slate Card
     if (hour >= 12 && hour < 18) return const Color(0xFF2C2C2E); // Day: Standard Grey Card
     return const Color(0xFF121212); // Night: Darker Card
   }
@@ -37,7 +43,6 @@ class ReachStyles {
     return const Color(0xFFF5F5F7); // Standard Day
   }
 
-  // FIX: FALLBACK STATIC COLORS (Restored)
   static const Color lightBackground = Color(0xFFF5F5F7);
   static const Color lightCard = Colors.white;
 

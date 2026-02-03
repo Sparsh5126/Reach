@@ -33,7 +33,12 @@ class CommuteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    // THIS LINE AUTOMATICALLY WORKS NOW:
+    // If Dynamic is OFF, main.dart sets cardColor to Navy.
+    // If Dynamic is ON, main.dart sets cardColor based on time.
     final bgColor = isDark ? Theme.of(context).cardColor : ReachStyles.lightCard;
+    
     final txtColor = isDark ? ReachStyles.darkText : ReachStyles.lightText;
 
     return GestureDetector(
@@ -68,9 +73,6 @@ class CommuteCard extends StatelessWidget {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // HELPER: SMART TITLE SECTION
-  // ---------------------------------------------------------------------------
   Widget _buildTitleSection(Color color) {
     return Expanded(
       child: Column(
@@ -93,7 +95,6 @@ class CommuteCard extends StatelessWidget {
                 ),
             ],
           ),
-          // USE THE NEW SMART FORMATTER HERE
           Text(
             "Arrive $arriveBy • ${_formatDays()}", 
             style: TextStyle(color: Colors.grey[600], fontSize: 11),
@@ -105,31 +106,22 @@ class CommuteCard extends StatelessWidget {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // LOGIC: SMART DAY FORMATTER
-  // ---------------------------------------------------------------------------
   String _formatDays() {
     if (days.isEmpty) return "Today";
     if (days.length == 7) return "Everyday";
 
-    // 1. SMART CHECK: 6 Days (Daily except X)
-    // Example: "Daily except Sat" (much shorter than listing 6 days)
     if (days.length == 6) {
       final allDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
       final missing = allDays.firstWhere((d) => !days.contains(d), orElse: () => "");
       if (missing.isNotEmpty) return "Daily except $missing";
     }
 
-    // 2. Weekdays (Mon-Fri)
     final isWeekdays = days.length == 5 && !days.contains("Sat") && !days.contains("Sun");
     if (isWeekdays) return "Weekdays";
 
-    // 3. Weekends (Sat-Sun)
     final isWeekends = days.length == 2 && days.contains("Sat") && days.contains("Sun");
     if (isWeekends) return "Weekends";
 
-    // 4. Fallback: Sort and List
-    // We sort them so "Fri Mon" becomes "Mon Fri"
     final ref = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     final sorted = List<String>.from(days);
     sorted.sort((a, b) => ref.indexOf(a).compareTo(ref.indexOf(b)));

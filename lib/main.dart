@@ -21,11 +21,9 @@ void main() async {
     debugPrint("Env load failed: $e");
   }
   
-  // Initialize Core Services
   await NotificationService().init();
   await CalendarService.init();
   
-  // Load User Preference
   final prefs = await SharedPreferences.getInstance();
   
   final isDark = prefs.getBool('is_dark_mode') ?? true;
@@ -47,9 +45,16 @@ class ReachApp extends StatelessWidget {
       second: dynamicThemeNotifier,
       builder: (context, currentMode, isDynamic, _) {
         
-        // 1. Calculate Colors from Styles
-        final darkBg = isDynamic ? ReachStyles.dynamicDarkBg : Colors.black;
-        final darkCard = isDynamic ? ReachStyles.dynamicDarkCard : const Color(0xFF161616);
+        // ---------------------------------------------------------------------
+        // FIX: NAVY DEFAULT WHEN DYNAMIC IS OFF
+        // ---------------------------------------------------------------------
+        // If Dynamic is ON -> Use Time-based Color
+        // If Dynamic is OFF -> Use ReachStyles.navyBackground (Default)
+        final darkBg = isDynamic ? ReachStyles.dynamicDarkBg : ReachStyles.navyBackground;
+        
+        // If Dynamic is ON -> Use Time-based Card
+        // If Dynamic is OFF -> Use ReachStyles.navyCard (Default)
+        final darkCard = isDynamic ? ReachStyles.dynamicDarkCard : ReachStyles.navyCard;
         
         final lightBg = isDynamic ? ReachStyles.dynamicLightBg : ReachStyles.lightBackground;
         final lightCard = ReachStyles.lightCard;
