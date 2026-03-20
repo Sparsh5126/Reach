@@ -130,9 +130,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       DateTime readyTime = _parseTimeOfDay(readyStr, now);
 
       // Schedule BOTH independently at start
-      // Use ID for leave, ID+1 for Pack
-      await NotificationService().scheduleLeaveAlarm(c.id.hashCode, leaveTime);
-      await NotificationService().schedulePackNotification(c.id.hashCode + 1, c.title, readyTime);
+      // Pass the weather status (isRaining) to the Notification Service
+      bool isRaining = rainFactor > 1.0;
+      await NotificationService().scheduleLeaveAlarm(c.id.hashCode, leaveTime, days: c.days, isRaining: isRaining);
+      await NotificationService().schedulePackNotification(c.id.hashCode + 1, c.title, readyTime, days: c.days);
     }
 
     final prefs = await SharedPreferences.getInstance();
@@ -169,7 +170,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     
     // Stop both
     await NotificationService().stopAlarm(c.id.hashCode);
-    await NotificationService().stopAlarm(c.id.hashCode + 1);
   }
 
   void _handleUndo(Commute c, int index) {
@@ -216,9 +216,78 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     await prefs.setStringList('ignored_events', _ignoredEventIds);
   }
 
-  void _openMapPicker(Commute c) {
+  // --- MAPS FIX IS HERE ---
+void _openMapPicker(Commute c) {
     HapticFeedback.lightImpact(); 
-    showModalBottomSheet(context: context, backgroundColor: Theme.of(context).scaffoldBackgroundColor, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (context) => SafeArea(child: Wrap(children: [const ListTile(title: Text("Navigate with", style: TextStyle(fontWeight: FontWeight.bold))), ListTile(leading: const Icon(Icons.map, color: Colors.blue), title: const Text("Google Maps"), onTap: () async { HapticFeedback.mediumImpact(); Navigator.pop(context); final query = Uri.encodeComponent(c.title); final url = Uri.parse("http://googleusercontent.com/maps.google.com/search?q=$query"); if (await canLaunchUrl(url)) await launchUrl(url, mode: LaunchMode.externalApplication); else await launchUrl(url); }), ListTile(leading: const Icon(Icons.explore, color: Colors.redAccent), title: const Text("Mappls (MapMyIndia)"), onTap: () async { HapticFeedback.mediumImpact(); Navigator.pop(context); final String dest = (c.eLoc != null && c.eLoc!.isNotEmpty) ? c.eLoc! : "${c.lat},${c.lon}"; final navUrl = Uri.parse("mappls://navigation?destination=$dest&destinationName=${Uri.encodeComponent(c.title)}"); final webFallback = Uri.parse("https://mappls.com/$dest"); try { if (await canLaunchUrl(navUrl)) await launchUrl(navUrl, mode: LaunchMode.externalApplication); else await launchUrl(webFallback, mode: LaunchMode.externalApplication); } catch (e) { await launchUrl(webFallback, mode: LaunchMode.externalApplication); } }), const SizedBox(height: 20)])));
+    showModalBottomSheet(
+      context: context, 
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor, 
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), 
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            const ListTile(title: Text("Navigate with", style: TextStyle(fontWeight: FontWeight.bold))), 
+            
+            // -----------------------------------------------------------------
+            // 1. GOOGLE MAPS (Fixed to use direct Navigation Intent)
+            // -----------------------------------------------------------------
+            ListTile(
+              leading: const Icon(Icons.map, color: Colors.blue), 
+              title: const Text("Google Maps"), 
+              onTap: () async { 
+                HapticFeedback.mediumImpact(); 
+                Navigator.pop(context); 
+                
+                final title = Uri.encodeComponent(c.title.split(',')[0]);
+                Uri url;
+                
+                // Use official Turn-by-Turn Navigation Intent if coords exist
+                if (c.lat != 0.0 && c.lon != 0.0) {
+                   url = Uri.parse("google.navigation:q=${c.lat},${c.lon}");
+                } else {
+                   // Fallback to text search
+                   url = Uri.parse("geo:0,0?q=$title");
+                }
+
+                try {
+                  await launchUrl(url, mode: LaunchMode.externalNonBrowserApplication);
+                } catch (e) {
+                   final webFallback = Uri.parse("https://www.google.com/maps/search/?api=1&query=$title");
+                   await launchUrl(webFallback, mode: LaunchMode.externalApplication);
+                }
+              }
+            ), 
+            
+            // -----------------------------------------------------------------
+            // 2. MAPPLS (Restored EXACTLY to your original working code)
+            // -----------------------------------------------------------------
+            ListTile(
+              leading: const Icon(Icons.explore, color: Colors.redAccent), 
+              title: const Text("Mappls (MapMyIndia)"), 
+              onTap: () async { 
+                HapticFeedback.mediumImpact(); 
+                Navigator.pop(context); 
+                
+                final String dest = (c.eLoc != null && c.eLoc!.isNotEmpty) ? c.eLoc! : "${c.lat},${c.lon}"; 
+                final navUrl = Uri.parse("mappls://navigation?destination=$dest&destinationName=${Uri.encodeComponent(c.title)}"); 
+                final webFallback = Uri.parse("https://mappls.com/$dest"); 
+                
+                try { 
+                  if (await canLaunchUrl(navUrl)) {
+                    await launchUrl(navUrl, mode: LaunchMode.externalApplication);
+                  } else {
+                    await launchUrl(webFallback, mode: LaunchMode.externalApplication);
+                  }
+                } catch (e) { 
+                  await launchUrl(webFallback, mode: LaunchMode.externalApplication); 
+                } 
+              }
+            ), 
+            const SizedBox(height: 20)
+          ]
+        )
+      )
+    );
   }
 
   void _editCommute(Commute c) {

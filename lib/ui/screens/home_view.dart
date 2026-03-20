@@ -169,6 +169,11 @@ class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
           final traffic = snapshot.data!['traffic'] as int;
           weatherEmoji = snapshot.data!['weather']['emoji'];
           
+          final hour = DateTime.now().hour;
+          final isNight = hour >= 18 || hour < 6;
+          if (isNight && (weatherEmoji.contains("☀️") || weatherEmoji.contains("🌤️") || weatherEmoji.contains("⛅"))) {
+            weatherEmoji = "🌙";
+          }
           final smart = TrafficService().calculateSmartTimes(
             widget.commute.title, 
             widget.commute.time, 

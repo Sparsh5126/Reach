@@ -138,7 +138,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 40),
           Center(
             child: Text(
-              "v1.0.0 • Reach", 
+              "v3.5.0 • Reach", 
               style: TextStyle(color: Colors.grey[600], fontSize: 12)
             ),
           ),
