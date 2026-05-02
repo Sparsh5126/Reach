@@ -1,8 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter/material.dart';
 import 'dart:async';
 
 class NotificationService {
@@ -10,43 +9,93 @@ class NotificationService {
   factory NotificationService() => _i;
   NotificationService._internal();
 
-  final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
-  final StreamController<String?> payloadStream = StreamController<String?>.broadcast();
+  final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
+
+  final StreamController<String?> payloadStream =
+      StreamController<String?>.broadcast();
+
+  bool _isInitialized = false;
 
   Future<void> init() async {
-    // 1. CRITICAL: Initialize Timezone Database to fix the "random time" bug
+    if (_isInitialized) return;
+
     tz.initializeTimeZones();
-    
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    try {
+      final String tzName = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(tzName));
+    } catch (_) {
+      tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
+    }
+
+    const androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
     await _plugin.initialize(
       const InitializationSettings(android: androidSettings),
       onDidReceiveNotificationResponse: (NotificationResponse response) {
         payloadStream.add(response.payload);
       },
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
-    const channel = AndroidNotificationChannel(
+    const alarmChannel = AndroidNotificationChannel(
       'reach_alarm',
-      'Critical Alarm',
+      'Leave Now Alarm',
+      description: 'Full-screen alarm when it is time to leave',
       importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+      showBadge: true,
+    );
+
+    const reminderChannel = AndroidNotificationChannel(
+      'reach_reminder',
+      'Pack Up Reminder',
+      description: 'Reminder to start getting ready',
+      importance: Importance.high,
       playSound: true,
       enableVibration: true,
     );
 
-    await _plugin
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
+    final androidPlugin = _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+
+    await androidPlugin?.createNotificationChannel(alarmChannel);
+    await androidPlugin?.createNotificationChannel(reminderChannel);
+
+    try {
+      await androidPlugin?.requestNotificationsPermission();
+    } catch (_) {}
+
+    try {
+      await androidPlugin?.requestExactAlarmsPermission();
+    } catch (_) {}
+
+    _isInitialized = true;
   }
 
   Future<void> requestPermissions() async {
-    await _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
+    final androidPlugin = _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    try {
+      await androidPlugin?.requestNotificationsPermission();
+      await androidPlugin?.requestExactAlarmsPermission();
+    } catch (_) {}
   }
 
-  // --- TIME ZONE HELPERS FOR REPEATING ALARMS ---
+  tz.TZDateTime _toTzDateTime(DateTime dt) {
+    return tz.TZDateTime.from(dt, tz.local);
+  }
+
   tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
     final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
-    tz.TZDateTime scheduledDate = tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
-    if (scheduledDate.isBefore(now)) {
+    tz.TZDateTime scheduledDate =
+        tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+    if (!scheduledDate.isAfter(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
     return scheduledDate;
@@ -60,124 +109,177 @@ class NotificationService {
     return scheduledDate;
   }
 
-  // ---------------------------------------------------------------------------
-  // SMART WEEKLY REPEATING ALARM (Fixes "Never Again" bug)
-  // ---------------------------------------------------------------------------
-  
-  // SCHEDULE "LEAVE NOW"
-  Future<void> scheduleLeaveAlarm(int id, DateTime targetTime, {List<String> days = const [], bool isRaining = false}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final bool useFullScreen = prefs.getBool('full_screen_alarm') ?? true;
-    final dayMap = {"Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4, "Fri": 5, "Sat": 6, "Sun": 7};
+  Future<void> scheduleLeaveAlarm(
+    int id,
+    DateTime targetTime, {
+    List<String> days = const [],
+    bool isRaining = false,
+    bool useFullScreen = false,
+  }) async {
+    await init();
 
-    // Dynamic Rain Warning
-    String title = isRaining ? '🌧️ RAIN DELAY: LEAVE NOW' : '🚀 LEAVE NOW';
-    String body = isRaining 
-        ? 'Rain detected! Traffic is slower. Leave immediately to reach on time.' 
+    final dayMap = {
+      "Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4,
+      "Fri": 5, "Sat": 6, "Sun": 7,
+    };
+
+    final String title =
+        isRaining ? '🌧️ RAIN DELAY: LEAVE NOW' : '🚀 LEAVE NOW';
+    final String body = isRaining
+        ? 'Rain detected! Traffic is slower. Leave immediately to reach on time.'
         : 'Traffic is active. Leave immediately to reach on time.';
+
+    const String payload = 'leave_alarm';
 
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
-        'reach_alarm', 'Critical Alarm',
-        importance: Importance.max, priority: Priority.high,
-        playSound: true, enableVibration: true, fullScreenIntent: useFullScreen,
+        'reach_alarm',
+        'Leave Now Alarm',
+        importance: Importance.max,
+        priority: Priority.max, // was Priority.high — needs max for alarms
+        playSound: true,
+        enableVibration: true,
         category: AndroidNotificationCategory.alarm,
-      ),
-    );
-
-    // If no days selected, default to daily repeat
-    if (days.isEmpty) {
-      await _plugin.zonedSchedule(
-        id, title, body,
-        _nextInstanceOfTime(targetTime.hour, targetTime.minute),
-        details,
-        androidScheduleMode: AndroidScheduleMode.alarmClock,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.time, // Repeats Daily
-      );
-      return;
-    }
-
-    // Schedule a separate recurring alarm for EACH selected day
-    for (int i = 0; i < days.length; i++) {
-      int? weekday = dayMap[days[i]];
-      if (weekday == null) continue;
-
-      int uniqueId = id + i; // Offset ID for each day to avoid overwriting
-
-      await _plugin.zonedSchedule(
-        uniqueId, title, body,
-        _nextInstanceOfDayAndTime(weekday, targetTime.hour, targetTime.minute),
-        details,
-        androidScheduleMode: AndroidScheduleMode.alarmClock, // Wakes phone up
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime, // Repeats Weekly!
-      );
-    }
-  }
-
-  // SCHEDULE "PACK UP" (Must also repeat on the selected days)
-  Future<void> schedulePackNotification(int id, String title, DateTime targetTime, {List<String> days = const []}) async {
-    final dayMap = {"Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4, "Fri": 5, "Sat": 6, "Sun": 7};
-    final details = const NotificationDetails(
-      android: AndroidNotificationDetails(
-        'reach_alarm', 'Critical Alarm',
-        importance: Importance.max, priority: Priority.high,
+        // FIX 8: fullScreenIntent so it shows on lock screen & breaks DND
+        fullScreenIntent: useFullScreen,
+        // Keeps notification visible even if user swipes (alarm behavior)
+        ongoing: useFullScreen,
+        autoCancel: !useFullScreen,
       ),
     );
 
     if (days.isEmpty) {
+      final scheduled = _toTzDateTime(targetTime);
+      final safeTime = scheduled.isAfter(tz.TZDateTime.now(tz.local))
+          ? scheduled
+          : tz.TZDateTime.now(tz.local).add(const Duration(seconds: 5));
+
       await _plugin.zonedSchedule(
-        id + 100, // Offset to not clash with Leave alarms
-        '🎒 GET READY', 'Start preparing to leave. Traffic check initiated.',
-        _nextInstanceOfTime(targetTime.hour, targetTime.minute),
+        id,
+        title,
+        body,
+        safeTime,
         details,
+        payload: payload,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.time,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
       );
       return;
     }
 
     for (int i = 0; i < days.length; i++) {
-      int? weekday = dayMap[days[i]];
+      final int? weekday = dayMap[days[i]];
       if (weekday == null) continue;
 
       await _plugin.zonedSchedule(
-        id + 100 + i, 
-        '🎒 GET READY', 'Start preparing to leave. Traffic check initiated.',
+        id + i,
+        title,
+        body,
         _nextInstanceOfDayAndTime(weekday, targetTime.hour, targetTime.minute),
         details,
+        payload: payload,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
       );
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // HELPERS & SIMULATION
-  // ---------------------------------------------------------------------------
+  Future<void> schedulePackNotification(
+    int id,
+    String title,
+    DateTime targetTime, {
+    List<String> days = const [],
+  }) async {
+    await init();
+
+    final dayMap = {
+      "Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4,
+      "Fri": 5, "Sat": 6, "Sun": 7,
+    };
+
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'reach_reminder',
+        'Pack Up Reminder',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+      ),
+    );
+
+    const String payload = 'pack_alarm';
+
+    if (days.isEmpty) {
+      final scheduled = _toTzDateTime(targetTime);
+      final safeTime = scheduled.isAfter(tz.TZDateTime.now(tz.local))
+          ? scheduled
+          : tz.TZDateTime.now(tz.local).add(const Duration(seconds: 5));
+
+      await _plugin.zonedSchedule(
+        id + 100,
+        '🎒 GET READY',
+        'Start preparing to leave. Traffic check initiated.',
+        safeTime,
+        details,
+        payload: payload,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      return;
+    }
+
+    for (int i = 0; i < days.length; i++) {
+      final int? weekday = dayMap[days[i]];
+      if (weekday == null) continue;
+
+      await _plugin.zonedSchedule(
+        id + 100 + i,
+        '🎒 GET READY',
+        'Start preparing to leave. Traffic check initiated.',
+        _nextInstanceOfDayAndTime(weekday, targetTime.hour, targetTime.minute),
+        details,
+        payload: payload,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+      );
+    }
+  }
+
   Future<void> startSimulation() async {
+    await init();
+
     await _plugin.zonedSchedule(
       777,
       '🧪 TEST: LEAVE NOW',
-      'Simulation Complete. Timezones and Alarms are accurate!',
+      'Simulation complete. Timezones and alarms are accurate!',
       tz.TZDateTime.now(tz.local).add(const Duration(seconds: 10)),
       const NotificationDetails(
         android: AndroidNotificationDetails(
-          'reach_alarm', 'Critical Alarm',
-          importance: Importance.max, priority: Priority.high,
-          fullScreenIntent: true, category: AndroidNotificationCategory.alarm,
+          'reach_alarm',
+          'Leave Now Alarm',
+          importance: Importance.max,
+          priority: Priority.max,
+          category: AndroidNotificationCategory.alarm,
+          fullScreenIntent: true,
+          playSound: true,
+          enableVibration: true,
         ),
       ),
-      androidScheduleMode: AndroidScheduleMode.alarmClock,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      payload: 'leave_alarm',
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
     );
   }
 
   Future<void> stopAlarm(int id) async {
-    // Cancel the base ID and up to 10 potential day offsets for both Leave and Pack alarms
     for (int i = 0; i < 10; i++) {
       await _plugin.cancel(id + i);
       await _plugin.cancel(id + 100 + i);
@@ -185,9 +287,26 @@ class NotificationService {
   }
 
   Future<void> showTestNotification() async {
+    await init();
+
     await _plugin.show(
-      888, '🔔 Instant Test', 'Permissions are working perfectly.',
-      const NotificationDetails(android: AndroidNotificationDetails('reach_alarm', 'Critical Alarm', importance: Importance.max, priority: Priority.high)),
+      888,
+      '🔔 Instant Test',
+      'Permissions are working perfectly.',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'reach_reminder',
+          'Pack Up Reminder',
+          importance: Importance.max,
+          priority: Priority.max,
+          playSound: true,
+          enableVibration: true,
+        ),
+      ),
     );
   }
+}
+
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse response) {
 }

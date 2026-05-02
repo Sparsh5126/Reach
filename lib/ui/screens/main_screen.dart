@@ -108,6 +108,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _saveCommute(Commute c) async {
+    // 1. CALCULATE LIVE TRAFFIC FIRST
     if (_ready) {
       double startLat = _currentPosition?.latitude ?? c.lat;
       double startLon = _currentPosition?.longitude ?? c.lon;
@@ -129,9 +130,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       DateTime leaveTime = _parseTimeOfDay(leaveStr, now);
       DateTime readyTime = _parseTimeOfDay(readyStr, now);
 
-      // Schedule BOTH independently at start
-      // Pass the weather status (isRaining) to the Notification Service
       bool isRaining = rainFactor > 1.0;
+
+      // 2. PASS EXACT CALCULATED TIMES TO NOTIFICATION SERVICE
       await NotificationService().scheduleLeaveAlarm(c.id.hashCode, leaveTime, days: c.days, isRaining: isRaining);
       await NotificationService().schedulePackNotification(c.id.hashCode + 1, c.title, readyTime, days: c.days);
     }
@@ -168,7 +169,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('commutes', json.encode(myCommutes.map((e) => e.toMap()).toList()));
     
-    // Stop both
+    // Stop both alarms
     await NotificationService().stopAlarm(c.id.hashCode);
   }
 
@@ -216,8 +217,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     await prefs.setStringList('ignored_events', _ignoredEventIds);
   }
 
-  // --- MAPS FIX IS HERE ---
-void _openMapPicker(Commute c) {
+  void _openMapPicker(Commute c) {
     HapticFeedback.lightImpact(); 
     showModalBottomSheet(
       context: context, 
@@ -228,9 +228,6 @@ void _openMapPicker(Commute c) {
           children: [
             const ListTile(title: Text("Navigate with", style: TextStyle(fontWeight: FontWeight.bold))), 
             
-            // -----------------------------------------------------------------
-            // 1. GOOGLE MAPS (Fixed to use direct Navigation Intent)
-            // -----------------------------------------------------------------
             ListTile(
               leading: const Icon(Icons.map, color: Colors.blue), 
               title: const Text("Google Maps"), 
@@ -241,11 +238,9 @@ void _openMapPicker(Commute c) {
                 final title = Uri.encodeComponent(c.title.split(',')[0]);
                 Uri url;
                 
-                // Use official Turn-by-Turn Navigation Intent if coords exist
                 if (c.lat != 0.0 && c.lon != 0.0) {
                    url = Uri.parse("google.navigation:q=${c.lat},${c.lon}");
                 } else {
-                   // Fallback to text search
                    url = Uri.parse("geo:0,0?q=$title");
                 }
 
@@ -258,9 +253,6 @@ void _openMapPicker(Commute c) {
               }
             ), 
             
-            // -----------------------------------------------------------------
-            // 2. MAPPLS (Restored EXACTLY to your original working code)
-            // -----------------------------------------------------------------
             ListTile(
               leading: const Icon(Icons.explore, color: Colors.redAccent), 
               title: const Text("Mappls (MapMyIndia)"), 

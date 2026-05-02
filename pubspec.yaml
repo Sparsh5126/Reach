@@ -30,16 +30,16 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_timezone: ^3.0.0
   cupertino_icons: ^1.0.6
   shared_preferences: ^2.5.4   
   url_launcher: ^6.3.2           
-  flutter_local_notifications: ^18.0.1 
+  flutter_local_notifications: ^18.0.0 
   timezone: ^0.9.0
   google_fonts: ^8.0.0
   flutter_photon: ^2.0.1
   permission_handler: ^11.3.1
   intl: ^0.20.2
-  android_alarm_manager_plus: ^5.0.0
   audioplayers: ^5.2.1
   flutter_dotenv: ^5.1.0
   geolocator: ^10.1.0
