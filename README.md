@@ -43,7 +43,7 @@ Reach is a smart commute assistant built with Flutter. Unlike standard alarms, R
 
 1.  **Clone the repo:**
     ```bash
-    git clone [https://github.com/yourusername/reach.git](https://github.com/yourusername/reach.git)
+    git clone [https://github.com/Sparsh5126/Reach.git](https://github.com/Sparsh5126/Reach.git)
     ```
 2.  **Install dependencies:**
     ```bash
