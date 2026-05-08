@@ -63,15 +63,24 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initApp() async {
-    await NotificationService().init();
-    await NotificationService().requestPermissions();
+    try {
+      await NotificationService().init();
+      await NotificationService().requestPermissions();
+    } catch (e) {
+      debugPrint("Notification init error: $e");
+    }
     
     await _loadData();
-    await [
-      Permission.locationWhenInUse, 
-      Permission.systemAlertWindow, 
-      Permission.calendar
-    ].request();
+    
+    try {
+      await [
+        Permission.locationWhenInUse, 
+        Permission.systemAlertWindow, 
+        Permission.calendar
+      ].request();
+    } catch (e) {
+      debugPrint("Permission request error: $e");
+    }
     
     await _determinePosition();
     setState(() => _ready = true);

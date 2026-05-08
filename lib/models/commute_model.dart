@@ -42,16 +42,16 @@ class Commute {
   // Create from Map for loading
   factory Commute.fromJson(Map<String, dynamic> map) {
     return Commute(
-      id: map['id'],
-      title: map['title'],
-      customTitle: map['customTitle'],
-      time: map['time'],
-      mode: map['mode'],
-      days: List<String>.from(map['days']),
-      lat: map['lat'],
-      lon: map['lon'],
-      eLoc: map['eLoc'],
-      isFavorite: (map['isFavorite'] == 1), // Load int as boolean
+      id: map['id']?.toString() ?? '',
+      title: map['title']?.toString() ?? 'Unknown',
+      customTitle: map['customTitle']?.toString(),
+      time: map['time']?.toString() ?? '09:00 AM',
+      mode: map['mode']?.toString() ?? 'car',
+      days: map['days'] != null ? List<String>.from(map['days']) : [],
+      lat: (map['lat'] as num?)?.toDouble() ?? 0.0,
+      lon: (map['lon'] as num?)?.toDouble() ?? 0.0,
+      eLoc: map['eLoc']?.toString(),
+      isFavorite: map['isFavorite'] == 1 || map['isFavorite'] == true, 
     );
   }
 
