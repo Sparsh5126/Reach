@@ -13,6 +13,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   bool _isDarkMode = true;
+  bool _fullScreenAlarmEnabled = true;
 
   @override
   void initState() {
@@ -24,6 +25,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _isDarkMode = prefs.getBool('is_dark_mode') ?? true;
+      _fullScreenAlarmEnabled = prefs.getBool('fullscreen_alarm_enabled') ?? true;
     });
   }
 
@@ -39,6 +41,8 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
+          _buildSectionHeader("Debug & Diagnostics"),
+          const SizedBox(height: 10),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Container(
@@ -73,7 +77,6 @@ class _SettingsPageState extends State<SettingsPage> {
               }
             },
           ),
-          const Divider(height: 16),
 
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -106,7 +109,61 @@ class _SettingsPageState extends State<SettingsPage> {
               }
             },
           ),
-          const Divider(height: 30),
+
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.location_on_outlined, color: Colors.blue),
+            ),
+            title: const Text(
+              "Test Check-in Notification",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text(
+              "Fires in ~5s — tests 'Reached' / 'Almost' buttons",
+            ),
+            onTap: () async {
+              HapticFeedback.selectionClick();
+              await NotificationService().testCheckinNotification();
+            },
+          ),
+
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.clear_all, color: Colors.red),
+            ),
+            title: const Text(
+              "Clear All Notifications",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text(
+              "Cancels all pending and active alarms",
+            ),
+            onTap: () async {
+              HapticFeedback.selectionClick();
+              await NotificationService().cancelAllNotifications();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("All notifications cleared.")),
+                );
+              }
+            },
+          ),
+          const SizedBox(height: 32),
+
+          _buildSectionHeader("Preferences"),
+          const SizedBox(height: 10),
 
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -151,14 +208,99 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
 
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              "Full-Screen Alarm",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text("Wakes up the screen at 'Leave Now' time"),
+            secondary: Icon(
+              Icons.vibration_outlined,
+              color: ReachStyles.primaryOrange,
+            ),
+            value: _fullScreenAlarmEnabled,
+            activeColor: ReachStyles.primaryOrange,
+            onChanged: (val) async {
+              HapticFeedback.lightImpact();
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('fullscreen_alarm_enabled', val);
+              setState(() => _fullScreenAlarmEnabled = val);
+            },
+          ),
+          const SizedBox(height: 32),
+
+          _buildSectionHeader("Advanced"),
+          const SizedBox(height: 10),
+
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.history, color: Colors.orange),
+            ),
+            title: const Text(
+              "Reset Learning History",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text(
+              "Clears your adaptive buffer & trip history",
+            ),
+            onTap: () {
+              HapticFeedback.heavyImpact();
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text("Reset History?"),
+                  content: const Text("This will clear all learned traffic data and return buffers to 0. This cannot be undone."),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                    TextButton(
+                      onPressed: () async {
+                        final prefs = await SharedPreferences.getInstance();
+                        final keys = prefs.getKeys().where((k) => k.startsWith('reach_')).toList();
+                        for (final k in keys) {
+                          await prefs.remove(k);
+                        }
+                        if (context.mounted) Navigator.pop(context);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Learning history cleared.")),
+                          );
+                        }
+                      },
+                      child: const Text("Reset", style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+
           const SizedBox(height: 40),
           Center(
             child: Text(
-              "v3.5.0 • Reach",
+              "v4.0.0 • Reach",
               style: TextStyle(color: Colors.grey[600], fontSize: 12),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Text(
+      title.toUpperCase(),
+      style: TextStyle(
+        color: ReachStyles.primaryOrange,
+        fontSize: 12,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 1.2,
       ),
     );
   }

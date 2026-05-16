@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../models/commute_model.dart';
 import '../../services/calendar_service.dart';
+import '../../services/commute_history_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/traffic_service.dart';
 import '../../services/weather_service.dart';
@@ -59,6 +60,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkCalendar();
+      _refreshAllAlarms(); // Silent Refresh on resume
     }
   }
 
@@ -84,6 +86,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     
     await _determinePosition();
     setState(() => _ready = true);
+    
+    // Initial Silent Refresh on app start
+    _refreshAllAlarms();
+    
     Future.delayed(const Duration(seconds: 1), _checkCalendar);
   }
 
@@ -116,35 +122,97 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _saveCommute(Commute c) async {
-    // 1. CALCULATE LIVE TRAFFIC FIRST
-    if (_ready) {
-      double startLat = _currentPosition?.latitude ?? c.lat;
-      double startLon = _currentPosition?.longitude ?? c.lon;
-      
-      final results = await Future.wait([
-        WeatherService().getWeatherInfo(startLat, startLon),
-        TrafficService().getAdjustedTravelDuration(startLat, startLon, c.eLoc),
-      ]);
-      
-      double rainFactor = (results[0] as Map)['factor'] as double;
-      int trafficBuffer = results[1] as int;
-
-      final times = TrafficService().calculateSmartTimes(c.title, c.time, trafficBuffer, rainFactor, c.mode);
-      
-      final String leaveStr = times['leave']!;
-      final String readyStr = times['ready']!;
-      
-      final now = DateTime.now();
-      DateTime leaveTime = _parseTimeOfDay(leaveStr, now);
-      DateTime readyTime = _parseTimeOfDay(readyStr, now);
-
-      bool isRaining = rainFactor > 1.0;
-
-      // 2. PASS EXACT CALCULATED TIMES TO NOTIFICATION SERVICE
-      await NotificationService().scheduleLeaveAlarm(c.id.hashCode, leaveTime, days: c.days, isRaining: isRaining);
-      await NotificationService().schedulePackNotification(c.id.hashCode + 1, c.title, readyTime, days: c.days);
+  /// Derives a stable, bounded notification base ID from a commute's string ID.
+  /// Uses a simple djb2-style hash so the result is consistent across app restarts
+  /// (unlike Dart's String.hashCode which is randomized per-process).
+  /// The result is kept in the range [1, 2^20) to leave plenty of headroom for
+  /// the +100 pack offset without overflowing a 32-bit signed int.
+  int _stableNotifId(String commuteId) {
+    int hash = 5381;
+    for (final int codeUnit in commuteId.codeUnits) {
+      hash = ((hash << 5) + hash) ^ codeUnit; // hash * 33 ^ c
     }
+    // Map to [1, 1_048_576) so we never return 0 and stay far below 2^31.
+    return (hash.abs() % 1048576) + 1;
+  }
+
+  Future<void> _refreshAllAlarms() async {
+    if (!_ready || myCommutes.isEmpty) return;
+    debugPrint('[SCHED] Starting silent refresh for ${myCommutes.length} commutes...');
+    for (final c in myCommutes) {
+      await _updateCommuteAlarms(c);
+    }
+    debugPrint('[SCHED] Silent refresh complete.');
+  }
+
+  Future<void> _updateCommuteAlarms(Commute c) async {
+    if (!_ready) return;
+
+    double startLat = _currentPosition?.latitude ?? c.lat;
+    double startLon = _currentPosition?.longitude ?? c.lon;
+
+    // Fetch live data (TrafficService handles 5-min caching internally)
+    final results = await Future.wait([
+      WeatherService().getWeatherInfo(startLat, startLon),
+      TrafficService().getAdjustedTravelDuration(startLat, startLon, c.eLoc),
+    ]);
+
+    double rainFactor = (results[0] as Map)['factor'] as double;
+    int trafficBuffer = results[1] as int;
+
+    // Apply personalized buffer learned from past commute history.
+    final int learnedBuffer = await CommuteHistoryService.getLearnedBuffer(c.id);
+    if (learnedBuffer > 0) {
+      debugPrint('[SCHED] Applying learned buffer: +$learnedBuffer min for "${c.customTitle ?? c.title}"');
+      trafficBuffer += learnedBuffer;
+    }
+
+    // Use the raw DateTime version to preserve full date context.
+    final times = TrafficService().calculateSmartTimesRaw(
+        c.title, c.time, trafficBuffer, rainFactor, c.mode);
+
+    final DateTime leaveTime = times['leave']!;
+    final DateTime readyTime = times['ready']!;
+    final DateTime arriveTime = times['arrive']!;
+    final bool isRaining = rainFactor > 1.0;
+
+    final int baseId = _stableNotifId(c.id);
+
+    debugPrint('[SCHED] Updating Alarms: "${c.customTitle ?? c.title}" | baseId=$baseId '
+        '| leave=$leaveTime | ready=$readyTime | arrive=$arriveTime');
+
+    // Persist standard preferences (e.g. fullscreen toggle)
+    final prefs = await SharedPreferences.getInstance();
+    final bool fsEnabled = prefs.getBool('fullscreen_alarm_enabled') ?? true;
+
+    // 1. LEAVE ALARMS (0..6)
+    await NotificationService().scheduleLeaveAlarm(
+      baseId, leaveTime,
+      days: c.days,
+      isRaining: isRaining,
+      useFullScreen: fsEnabled,
+    );
+
+    // 2. PACK REMINDERS (100..106)
+    await NotificationService().schedulePackNotification(
+      baseId, c.title, readyTime,
+      days: c.days,
+    );
+
+    // 3. CHECK-IN NOTIFICATIONS (200..206)
+    final checkinFireAt = arriveTime.subtract(const Duration(minutes: 5));
+    await NotificationService().scheduleCheckinNotification(
+      baseId,
+      c.id,
+      checkinFireAt,
+      arriveTime,
+      days: c.days,
+    );
+  }
+
+  Future<void> _saveCommute(Commute c) async {
+    // Update live alarms immediately
+    await _updateCommuteAlarms(c);
 
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -152,38 +220,42 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       myCommutes.add(c);
       _sortCommutes();
     });
-    
-    await prefs.setString('commutes', json.encode(myCommutes.map((e) => e.toMap()).toList()));
-  }
-  
-  DateTime _parseTimeOfDay(String timeStr, DateTime ref) {
-    try {
-      final clean = timeStr.replaceAll(RegExp(r'[^0-9:AMPamp]'), '');
-      final parts = clean.split(" ");
-      final hm = parts[0].split(":");
-      int h = int.parse(hm[0]);
-      int m = int.parse(hm[1]);
-      if (parts[1].toUpperCase() == "PM" && h != 12) h += 12;
-      if (parts[1].toUpperCase() == "AM" && h == 12) h = 0;
-      return DateTime(ref.year, ref.month, ref.day, h, m);
-    } catch (e) {
-      return ref.add(const Duration(hours: 1)); 
-    }
+
+    await prefs.setString(
+        'commutes', json.encode(myCommutes.map((e) => e.toMap()).toList()));
   }
 
   void _deleteCommute(int index) async {
     final c = myCommutes[index];
     setState(() => myCommutes.removeAt(index));
-    
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('commutes', json.encode(myCommutes.map((e) => e.toMap()).toList()));
-    
-    // Stop both alarms
-    await NotificationService().stopAlarm(c.id.hashCode);
+    await prefs.setString(
+        'commutes', json.encode(myCommutes.map((e) => e.toMap()).toList()));
+
+    final int baseId = _stableNotifId(c.id);
+    debugPrint('[SCHED] deleteCommute "${c.customTitle ?? c.title}" | cancelling baseId=$baseId');
+    // stopAlarm now also cancels the check-in notification (baseId + 200).
+    await NotificationService().stopAlarm(baseId);
+    // Clear learned history so deleted commutes don't pollute re-added ones.
+    await CommuteHistoryService.clearHistory(c.id);
   }
 
   void _handleUndo(Commute c, int index) {
     _saveCommute(c);
+  }
+
+  void _toggleFavorite(Commute c) async {
+    final updated = c.copyWith(isFavorite: !c.isFavorite);
+    // Update state instantly — no network calls needed for a favorite toggle.
+    setState(() {
+      myCommutes.removeWhere((e) => e.id == updated.id);
+      myCommutes.add(updated);
+      _sortCommutes();
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        'commutes', json.encode(myCommutes.map((e) => e.toMap()).toList()));
   }
 
   void _sortCommutes() {
@@ -300,7 +372,25 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return Scaffold(
       body: Stack(
         children: [
-          Positioned.fill(child: _selectedIndex == 0 ? HomeView(commutes: myCommutes, currentPos: _currentPosition, onEdit: _editCommute, onDelete: _deleteCommute, onUndo: _handleUndo, onNavigate: _openMapPicker) : AddEditSheet(isSheet: false, onSave: (c) { _saveCommute(c); setState(() => _selectedIndex = 0); })),
+          Positioned.fill(
+            child: _selectedIndex == 0
+                ? HomeView(
+                    commutes: myCommutes,
+                    currentPos: _currentPosition,
+                    onEdit: _editCommute,
+                    onDelete: _deleteCommute,
+                    onUndo: _handleUndo,
+                    onNavigate: _openMapPicker,
+                    onFavoriteToggle: _toggleFavorite,
+                  )
+                : AddEditSheet(
+                    isSheet: false,
+                    onSave: (c) {
+                      _saveCommute(c);
+                      setState(() => _selectedIndex = 0);
+                    },
+                  ),
+          ),
           Align(alignment: Alignment.bottomCenter, child: Padding(padding: const EdgeInsets.only(bottom: 30), child: SlidingNavBar(selectedIndex: _selectedIndex, onTabChange: (i) => setState(() => _selectedIndex = i)))),
         ],
       ),

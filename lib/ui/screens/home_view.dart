@@ -9,13 +9,18 @@ import '../widgets/commute_card.dart';
 import 'settings_page.dart';
 import '../styles.dart';
 
-class HomeView extends StatelessWidget {
+// ---------------------------------------------------------------------------
+// HOME VIEW
+// ---------------------------------------------------------------------------
+
+class HomeView extends StatefulWidget {
   final List<Commute> commutes;
   final Position? currentPos;
   final Function(Commute) onEdit;
   final Function(int) onDelete;
   final Function(Commute, int) onUndo;
   final Function(Commute) onNavigate;
+  final Function(Commute) onFavoriteToggle;
 
   const HomeView({
     super.key,
@@ -25,7 +30,42 @@ class HomeView extends StatelessWidget {
     required this.onDelete,
     required this.onUndo,
     required this.onNavigate,
+    required this.onFavoriteToggle,
   });
+
+  @override
+  State<HomeView> createState() => _HomeViewState();
+}
+
+class _HomeViewState extends State<HomeView> {
+  // Shared weather fetched once for all cards, not once per card.
+  late Future<Map<String, dynamic>> _weatherFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _weatherFuture = _fetchWeather();
+  }
+
+  @override
+  void didUpdateWidget(HomeView old) {
+    super.didUpdateWidget(old);
+    // Re-fetch weather only if the user location changes.
+    final oldPos = old.currentPos;
+    final newPos = widget.currentPos;
+    if (oldPos?.latitude != newPos?.latitude ||
+        oldPos?.longitude != newPos?.longitude) {
+      _weatherFuture = _fetchWeather();
+    }
+  }
+
+  Future<Map<String, dynamic>> _fetchWeather() {
+    final lat = widget.currentPos?.latitude ??
+        (widget.commutes.isNotEmpty ? widget.commutes.first.lat : 28.6);
+    final lon = widget.currentPos?.longitude ??
+        (widget.commutes.isNotEmpty ? widget.commutes.first.lon : 77.2);
+    return WeatherService().getWeatherInfo(lat, lon);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,9 +75,9 @@ class HomeView extends StatelessWidget {
     return SafeArea(
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(24, 40, 24, 120),
-        itemCount: commutes.length + 1,
+        itemCount: widget.commutes.length + 1,
         itemBuilder: (context, index) {
-          // HEADER
+          // --- HEADER ---
           if (index == 0) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 25),
@@ -46,14 +86,14 @@ class HomeView extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text("Reach", style: ReachStyles.heading.copyWith(color: textColor)),
-                      const Text(".", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.orange)),
+                      Text('Reach', style: ReachStyles.heading.copyWith(color: textColor)),
+                      const Text('.', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.orange)),
                     ],
                   ),
                   IconButton(
                     icon: const Icon(Icons.settings),
                     onPressed: () {
-                      HapticFeedback.lightImpact(); 
+                      HapticFeedback.lightImpact();
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()));
                     },
                   ),
@@ -62,57 +102,57 @@ class HomeView extends StatelessWidget {
             );
           }
 
-          // COMMUTE CARD
-          final c = commutes[index - 1];
-          final useLat = currentPos?.latitude ?? c.lat;
-          final useLon = currentPos?.longitude ?? c.lon;
+          // --- COMMUTE CARD ---
+          final c = widget.commutes[index - 1];
+          final useLat = widget.currentPos?.latitude ?? c.lat;
+          final useLon = widget.currentPos?.longitude ?? c.lon;
 
           return Dismissible(
             key: Key(c.id),
             direction: DismissDirection.endToStart,
             onDismissed: (_) {
-              HapticFeedback.heavyImpact(); 
-              
-              // 1. Capture details BEFORE deleting
-              final deletedItem = c;
+              HapticFeedback.heavyImpact();
               final deletedIndex = index - 1;
-
-              // 2. Perform Delete
-              onDelete(deletedIndex);
-
-              // 3. Show Undo SnackBar
-              ScaffoldMessenger.of(context).clearSnackBars();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text("${deletedItem.title} deleted"),
-                  behavior: SnackBarBehavior.floating,
-                  margin: const EdgeInsets.all(20),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  action: SnackBarAction(
-                    label: 'Undo',
-                    textColor: ReachStyles.primaryOrange,
-                    onPressed: () {
-                      HapticFeedback.mediumImpact();
-                      onUndo(deletedItem, deletedIndex);
-                    },
+              widget.onDelete(deletedIndex);
+              ScaffoldMessenger.of(context)
+                ..clearSnackBars()
+                ..showSnackBar(
+                  SnackBar(
+                    content: Text('${c.customTitle ?? c.title} deleted'),
+                    behavior: SnackBarBehavior.floating,
+                    margin: const EdgeInsets.all(20),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    action: SnackBarAction(
+                      label: 'Undo',
+                      textColor: ReachStyles.primaryOrange,
+                      onPressed: () {
+                        HapticFeedback.mediumImpact();
+                        widget.onUndo(c, deletedIndex);
+                      },
+                    ),
+                    duration: const Duration(seconds: 4),
                   ),
-                  duration: const Duration(seconds: 4),
-                ),
-              );
+                );
             },
             background: Container(
               margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.8), borderRadius: BorderRadius.circular(24)),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(24),
+              ),
               alignment: Alignment.centerRight,
               padding: const EdgeInsets.only(right: 25),
               child: const Icon(Icons.delete_forever, color: Colors.white, size: 30),
             ),
             child: _AsyncCommuteCard(
-              commute: c, 
-              lat: useLat, 
-              lon: useLon, 
-              onEdit: () => onEdit(c),
-              onNavigate: onNavigate,
+              key: ValueKey(c.id),
+              commute: c,
+              lat: useLat,
+              lon: useLon,
+              weatherFuture: _weatherFuture,
+              onEdit: () => widget.onEdit(c),
+              onNavigate: widget.onNavigate,
+              onFavoriteToggle: widget.onFavoriteToggle,
             ),
           );
         },
@@ -123,20 +163,28 @@ class HomeView extends StatelessWidget {
 
 // ---------------------------------------------------------------------------
 // ASYNC CARD WRAPPER
+// Fetches only traffic (weather is shared from parent). Correctly re-fetches
+// when the commute destination or user location changes via didUpdateWidget.
 // ---------------------------------------------------------------------------
+
 class _AsyncCommuteCard extends StatefulWidget {
   final Commute commute;
   final double lat;
   final double lon;
+  final Future<Map<String, dynamic>> weatherFuture;
   final VoidCallback onEdit;
   final Function(Commute) onNavigate;
+  final Function(Commute) onFavoriteToggle;
 
   const _AsyncCommuteCard({
+    super.key,
     required this.commute,
     required this.lat,
     required this.lon,
+    required this.weatherFuture,
     required this.onEdit,
     required this.onNavigate,
+    required this.onFavoriteToggle,
   });
 
   @override
@@ -144,42 +192,63 @@ class _AsyncCommuteCard extends StatefulWidget {
 }
 
 class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
-  late Future<Map<String, dynamic>> _dataFuture;
+  late Future<int> _trafficFuture;
 
   @override
   void initState() {
     super.initState();
-    _dataFuture = Future.wait([
-      WeatherService().getWeatherInfo(widget.lat, widget.lon),
-      TrafficService().getAdjustedTravelDuration(widget.lat, widget.lon, widget.commute.eLoc),
-    ]).then((res) => {'weather': res[0], 'traffic': res[1]});
+    _trafficFuture = _fetchTraffic();
+  }
+
+  @override
+  void didUpdateWidget(_AsyncCommuteCard old) {
+    super.didUpdateWidget(old);
+    // Re-fetch traffic if the destination or user position changed.
+    if (old.commute.eLoc != widget.commute.eLoc ||
+        old.lat != widget.lat ||
+        old.lon != widget.lon) {
+      setState(() {
+        _trafficFuture = _fetchTraffic();
+      });
+    }
+  }
+
+  Future<int> _fetchTraffic() {
+    return TrafficService()
+        .getAdjustedTravelDuration(widget.lat, widget.lon, widget.commute.eLoc);
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _dataFuture,
+    return FutureBuilder<List<dynamic>>(
+      future: Future.wait([widget.weatherFuture, _trafficFuture]),
       builder: (context, snapshot) {
-        String leaveBy = "...";
-        String readyBy = "...";
-        String weatherEmoji = "";
+        String leaveBy = '...';
+        String readyBy = '...';
+        String weatherEmoji = '';
 
         if (snapshot.hasData) {
-          final rain = (snapshot.data!['weather']['factor'] as num).toDouble();
-          final traffic = snapshot.data!['traffic'] as int;
-          weatherEmoji = snapshot.data!['weather']['emoji'];
-          
+          final weather = snapshot.data![0] as Map<String, dynamic>;
+          final traffic = snapshot.data![1] as int;
+
+          final rain = (weather['factor'] as num).toDouble();
+          weatherEmoji = weather['emoji'] as String;
+
+          // Swap sun emoji to moon at night.
           final hour = DateTime.now().hour;
-          final isNight = hour >= 18 || hour < 6;
-          if (isNight && (weatherEmoji.contains("☀️") || weatherEmoji.contains("🌤️") || weatherEmoji.contains("⛅"))) {
-            weatherEmoji = "🌙";
+          if ((hour >= 18 || hour < 6) &&
+              (weatherEmoji.contains('☀️') ||
+                  weatherEmoji.contains('🌤️') ||
+                  weatherEmoji.contains('⛅'))) {
+            weatherEmoji = '🌙';
           }
+
           final smart = TrafficService().calculateSmartTimes(
-            widget.commute.title, 
-            widget.commute.time, 
-            traffic, 
-            rain, 
-            widget.commute.mode
+            widget.commute.title,
+            widget.commute.time,
+            traffic,
+            rain,
+            widget.commute.mode,
           );
           leaveBy = smart['leave']!;
           readyBy = smart['ready']!;
@@ -197,6 +266,7 @@ class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
           onTap: () => widget.onNavigate(widget.commute),
           onDirections: () => widget.onNavigate(widget.commute),
           onDoubleTap: widget.onEdit,
+          onFavoriteToggle: () => widget.onFavoriteToggle(widget.commute),
         );
       },
     );

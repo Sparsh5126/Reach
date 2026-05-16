@@ -54,13 +54,23 @@ class TrafficService {
   }
 
   Map<String, String> calculateSmartTimes(String title, String arriveTimeStr, int travelMinutes, double rainFactor, String mode) {
+    final raw = calculateSmartTimesRaw(title, arriveTimeStr, travelMinutes, rainFactor, mode);
+    return {
+      'leave': _formatTime(raw['leave']!),
+      'ready': _formatTime(raw['ready']!),
+    };
+  }
+
+  /// Returns the exact [DateTime] objects for leave and ready times.
+  /// Use this for notification scheduling to preserve full date context.
+  Map<String, DateTime> calculateSmartTimesRaw(String title, String arriveTimeStr, int travelMinutes, double rainFactor, String mode) {
     // 1. Parse Arrive Time
     final now = DateTime.now();
     int targetHour = 9;
     int targetMinute = 0;
-    
+
     try {
-      final timeParts = arriveTimeStr.split(" "); 
+      final timeParts = arriveTimeStr.split(" ");
       final hm = timeParts[0].split(":");
       targetHour = int.parse(hm[0]);
       targetMinute = int.parse(hm[1]);
@@ -69,33 +79,30 @@ class TrafficService {
     } catch (_) {}
 
     // 2. Calculate Real Buffers
-    // - Rain Buffer: Extra time due to rain
-    // - Parking: Fixed time to find spot
-    // - Traffic Safety: Always add 15 mins for unpredictable jams
-    
     int rainBuffer = 0;
     if (rainFactor > 1.0) {
       rainBuffer = (travelMinutes * (rainFactor - 1.0)).round();
     }
-    
+
     int parkingBuffer = (mode == 'car') ? 10 : 2;
     int safetyBuffer = 15;
 
     int totalCommute = travelMinutes + rainBuffer + parkingBuffer + safetyBuffer;
 
     DateTime arriveTime = DateTime(now.year, now.month, now.day, targetHour, targetMinute);
-    // If time passed, assume tomorrow
+    // If arrival time has passed, schedule for tomorrow.
     if (arriveTime.isBefore(now)) arriveTime = arriveTime.add(const Duration(days: 1));
 
     // 3. Subtract to find Leave Time
     final leaveTime = arriveTime.subtract(Duration(minutes: totalCommute));
-    
+
     // 4. Subtract 15 mins more for "Pack/Ready" time
     final readyTime = leaveTime.subtract(const Duration(minutes: 15));
 
     return {
-      'leave': _formatTime(leaveTime),
-      'ready': _formatTime(readyTime),
+      'leave': leaveTime,
+      'ready': readyTime,
+      'arrive': arriveTime, // also expose for check-in notification scheduling
     };
   }
 
