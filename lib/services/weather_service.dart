@@ -16,22 +16,22 @@ class WeatherService {
         
         // --- WEATHER CODE MAPPING ---
         if (code >= 95 && code <= 99) {
-          return {'factor': 1.0, 'emoji': '⛈️'}; // Storm
+          return {'factor': 2.0, 'emoji': '⛈️'}; // Storm (100% delay)
         } else if (code >= 61 && code <= 67) {
-          return {'factor': 0.5, 'emoji': '🌧️'}; // Rain
+          return {'factor': 1.5, 'emoji': '🌧️'}; // Rain (50% delay)
         } else if (code >= 51 && code <= 57) {
-          return {'factor': 0.3, 'emoji': '🌦️'}; // Drizzle
+          return {'factor': 1.3, 'emoji': '🌦️'}; // Drizzle (30% delay)
         } else if (code >= 71 && code <= 77) {
-          return {'factor': 1.0, 'emoji': '❄️'}; // Snow
+          return {'factor': 2.0, 'emoji': '❄️'}; // Snow (100% delay)
         } else if (code >= 1 && code <= 3) {
-          return {'factor': 0.0, 'emoji': '☁️'}; // Cloudy
+          return {'factor': 1.0, 'emoji': '☁️'}; // Cloudy (0% delay)
         } else {
-          return {'factor': 0.0, 'emoji': '☀️'}; // Clear (Default)
+          return {'factor': 1.0, 'emoji': '☀️'}; // Clear (Default)
         }
       }
     } catch (e) {
       print("⚠️ Weather API Error: $e");
     }
-    return {'factor': 0.0, 'emoji': ''}; // Return empty if failed
+    return {'factor': 1.0, 'emoji': ''}; // Return default 1.0 if failed
   }
 }

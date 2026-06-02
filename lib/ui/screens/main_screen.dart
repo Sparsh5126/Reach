@@ -33,6 +33,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool _ready = false;
   Position? _currentPosition;
   List<String> _ignoredEventIds = [];
+  StreamSubscription<String?>? _notificationSub;
 
   @override
   void initState() {
@@ -43,8 +44,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void _listenToNotifications() {
-    NotificationService().payloadStream.stream.listen((payload) {
-      if (payload == 'ALARM') {
+    _notificationSub = NotificationService().payloadStream.stream.listen((payload) {
+      if (payload == 'ALARM' && mounted) {
         Navigator.push(context, MaterialPageRoute(builder: (_) => AlarmScreen(payload: payload!)));
       }
     });
@@ -52,6 +53,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _notificationSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -140,7 +142,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (!_ready || myCommutes.isEmpty) return;
     debugPrint('[SCHED] Starting silent refresh for ${myCommutes.length} commutes...');
     for (final c in myCommutes) {
-      await _updateCommuteAlarms(c);
+      try {
+        await _updateCommuteAlarms(c);
+      } catch (e) {
+        debugPrint('[SCHED] Silent refresh failed for "${c.customTitle ?? c.title}": $e');
+      }
     }
     debugPrint('[SCHED] Silent refresh complete.');
   }
@@ -157,7 +163,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       TrafficService().getAdjustedTravelDuration(startLat, startLon, c.eLoc),
     ]);
 
-    double rainFactor = (results[0] as Map)['factor'] as double;
+    double rainFactor = ((results[0] as Map)['factor'] as num).toDouble();
     int trafficBuffer = results[1] as int;
 
     // Apply personalized buffer learned from past commute history.
@@ -179,7 +185,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final int baseId = _stableNotifId(c.id);
 
     debugPrint('[SCHED] Updating Alarms: "${c.customTitle ?? c.title}" | baseId=$baseId '
-        '| leave=$leaveTime | ready=$readyTime | arrive=$arriveTime');
+        '| leave=$leaveTime | ready=$readyTime | arrive=$arriveTime '
+        '| days=${c.days} | traffic=${trafficBuffer}min | rain=$rainFactor');
+
+    // CRITICAL: Cancel ALL existing notifications for this commute before
+    // re-scheduling. Without this, re-scheduling with the same ID but a
+    // different time causes Android to silently drop the alarm (the old alarm
+    // is cancelled but the new one may not register if the system considers
+    // the notification "already scheduled").
+    await NotificationService().stopAlarm(baseId);
 
     // Persist standard preferences (e.g. fullscreen toggle)
     final prefs = await SharedPreferences.getInstance();
@@ -208,12 +222,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       arriveTime,
       days: c.days,
     );
+
+    // Log pending notifications for this commute (diagnostic)
+    await NotificationService().getPendingNotifications();
   }
 
   Future<void> _saveCommute(Commute c) async {
-    // Update live alarms immediately
-    await _updateCommuteAlarms(c);
-
+    // 1. Immediately update UI state and persist to SharedPreferences for zero-latency feedback
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       myCommutes.removeWhere((e) => e.id == c.id);
@@ -223,6 +238,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     await prefs.setString(
         'commutes', json.encode(myCommutes.map((e) => e.toMap()).toList()));
+
+    // 2. Schedule live alarms asynchronously in the background, catching any platform/permission errors safely
+    try {
+      await _updateCommuteAlarms(c);
+    } catch (e) {
+      debugPrint('[SCHED] Failed to update alarms for "${c.customTitle ?? c.title}": $e');
+    }
   }
 
   void _deleteCommute(int index) async {

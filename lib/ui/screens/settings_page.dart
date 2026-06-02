@@ -66,7 +66,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: () async {
               HapticFeedback.selectionClick();
               await NotificationService().showTestNotification();
-              if (mounted) {
+              if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text("Notification sent! Check your shade."),
@@ -98,7 +98,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: () async {
               HapticFeedback.selectionClick();
               await NotificationService().startSimulation();
-              if (mounted) {
+              if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: const Text("Scheduled! Lock your screen and wait ~15s."),
@@ -153,7 +153,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: () async {
               HapticFeedback.selectionClick();
               await NotificationService().cancelAllNotifications();
-              if (mounted) {
+              if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text("All notifications cleared.")),
                 );

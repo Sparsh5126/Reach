@@ -85,7 +85,10 @@ class TrafficService {
     }
 
     int parkingBuffer = (mode == 'car') ? 10 : 2;
-    int safetyBuffer = 15;
+    
+    // Dynamic safety buffer: scales with trip length (15% of travel time),
+    // clamped between 5 mins (for short/quick trips) and 15 mins (for long commutes)
+    int safetyBuffer = (travelMinutes * 0.15).round().clamp(5, 15);
 
     int totalCommute = travelMinutes + rainBuffer + parkingBuffer + safetyBuffer;
 
@@ -94,10 +97,20 @@ class TrafficService {
     if (arriveTime.isBefore(now)) arriveTime = arriveTime.add(const Duration(days: 1));
 
     // 3. Subtract to find Leave Time
-    final leaveTime = arriveTime.subtract(Duration(minutes: totalCommute));
+    DateTime leaveTime = arriveTime.subtract(Duration(minutes: totalCommute));
 
     // 4. Subtract 15 mins more for "Pack/Ready" time
-    final readyTime = leaveTime.subtract(const Duration(minutes: 15));
+    DateTime readyTime = leaveTime.subtract(const Duration(minutes: 15));
+
+    // 5. If the earliest notification (pack/ready) is already in the past, push
+    //    the entire window to tomorrow. This handles the narrow window where
+    //    arriveTime is technically future but leaveTime/packTime are already past
+    //    (e.g. it's 8:35 AM, arrival is 9 AM, leaveTime is 8:25 AM → all past).
+    if (!readyTime.isAfter(now)) {
+      arriveTime = arriveTime.add(const Duration(days: 1));
+      leaveTime  = arriveTime.subtract(Duration(minutes: totalCommute));
+      readyTime  = leaveTime.subtract(const Duration(minutes: 15));
+    }
 
     return {
       'leave': leaveTime,

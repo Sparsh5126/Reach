@@ -108,8 +108,14 @@ class NotificationService {
     } catch (_) {}
   }
 
+  // ---------------------------------------------------------------------------
+  // TIMEZONE HELPERS
+  // ---------------------------------------------------------------------------
+
+
+  /// Converts an existing DateTime to TZDateTime.
+  /// Used only for one-shot scheduling where the full date matters.
   tz.TZDateTime _toTzDateTime(DateTime dt) {
-    // dt may be a plain DateTime (local). Convert to TZDateTime in tz.local.
     return tz.TZDateTime.from(dt, tz.local);
   }
 
@@ -117,12 +123,16 @@ class NotificationService {
   /// [hour], [minute]. If that moment today is still in the future, returns
   /// today. Otherwise adds 7 days to get next week's occurrence.
   tz.TZDateTime _nextInstanceOfDayAndTime(int dayOfWeek, int hour, int minute) {
-    final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
+    final DateTime deviceNow = DateTime.now();
 
-    // Build candidate: this week, at the target weekday + time.
-    // Start from today and walk forward until we hit the right weekday.
-    tz.TZDateTime candidate =
-        tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+    // Build candidate using standard local DateTime
+    DateTime candidate = DateTime(
+      deviceNow.year,
+      deviceNow.month,
+      deviceNow.day,
+      hour,
+      minute,
+    );
 
     // Advance day-by-day until weekday matches (at most 6 iterations).
     int attempts = 0;
@@ -132,12 +142,20 @@ class NotificationService {
     }
 
     // If the matched day+time is in the past, jump exactly 7 days ahead.
-    if (!candidate.isAfter(now)) {
+    if (!candidate.isAfter(deviceNow)) {
       candidate = candidate.add(const Duration(days: 7));
     }
 
-    return candidate;
+    return tz.TZDateTime.from(candidate, tz.local);
   }
+
+  // ---------------------------------------------------------------------------
+  // DAY MAP (shared)
+  // ---------------------------------------------------------------------------
+  static const Map<String, int> _dayMap = {
+    "Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4,
+    "Fri": 5, "Sat": 6, "Sun": 7,
+  };
 
   // ---------------------------------------------------------------------------
   // LEAVE ALARM
@@ -145,7 +163,7 @@ class NotificationService {
 
   /// [baseId]    — stable, unique base ID for this commute (caller's responsibility).
   /// [targetTime]— the computed leave time (must be a future DateTime or it will
-  ///               be clamped to +5s).
+  ///               be skipped for one-shot).
   /// [days]      — list of short day names e.g. ["Mon","Wed"]. Empty = one-shot.
   ///
   /// ID space used:
@@ -159,11 +177,6 @@ class NotificationService {
     bool useFullScreen = false,
   }) async {
     await init();
-
-    final dayMap = {
-      "Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4,
-      "Fri": 5, "Sat": 6, "Sun": 7,
-    };
 
     final String title =
         isRaining ? '🌧️ RAIN DELAY: LEAVE NOW' : '🚀 LEAVE NOW';
@@ -192,17 +205,26 @@ class NotificationService {
       // One-shot: schedule at exact targetTime.
       final scheduled = _toTzDateTime(targetTime);
       final now = tz.TZDateTime.now(tz.local);
-      final safeTime =
-          scheduled.isAfter(now) ? scheduled : now.add(const Duration(seconds: 5));
+
+      // If the leave time has already passed, cancel any stale notification
+      // and skip. Do NOT fire immediately — that causes random spurious alarms.
+      if (!scheduled.isAfter(now)) {
+        debugPrint(
+            '[NOTIF] scheduleLeaveAlarm ONE-SHOT SKIPPED (past) | id=$baseId '
+            '| target=${targetTime.toLocal()} | now=$now');
+        await _plugin.cancel(baseId);
+        return;
+      }
 
       debugPrint(
-          '[NOTIF] scheduleLeaveAlarm ONE-SHOT | id=$baseId | local=${targetTime.toLocal()} | tz=$safeTime');
+          '[NOTIF] scheduleLeaveAlarm ONE-SHOT | id=$baseId '
+          '| fireAt=$scheduled (in ${scheduled.difference(now).inMinutes} min)');
 
       await _plugin.zonedSchedule(
         baseId,
         title,
         body,
-        safeTime,
+        scheduled,
         details,
         payload: payload,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -213,17 +235,24 @@ class NotificationService {
     }
 
     // Recurring: one notification per selected day.
+    // IMPORTANT: Extract hour/minute from the computed time and use
+    // _nextInstanceOfDayAndTime to find the correct future fire time.
+    // This is independent of what date calculateSmartTimesRaw put on the DateTime.
+    final localTime = targetTime.isUtc ? targetTime.toLocal() : targetTime;
+    final int targetHour = localTime.hour;
+    final int targetMinute = localTime.minute;
+
     for (int i = 0; i < days.length; i++) {
-      final int? weekday = dayMap[days[i]];
+      final int? weekday = _dayMap[days[i]];
       if (weekday == null) continue;
 
       final int notifId = baseId + i; // leave IDs: baseId, baseId+1, … baseId+6
       final tz.TZDateTime scheduled =
-          _nextInstanceOfDayAndTime(weekday, targetTime.hour, targetTime.minute);
+          _nextInstanceOfDayAndTime(weekday, targetHour, targetMinute);
 
       debugPrint(
           '[NOTIF] scheduleLeaveAlarm RECURRING | id=$notifId | day=${days[i]}($weekday) '
-          '| time=${targetTime.hour}:${targetTime.minute} | firstFire=$scheduled');
+          '| time=$targetHour:${targetMinute.toString().padLeft(2, '0')} | firstFire=$scheduled');
 
       await _plugin.zonedSchedule(
         notifId,
@@ -256,11 +285,6 @@ class NotificationService {
   }) async {
     await init();
 
-    final dayMap = {
-      "Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4,
-      "Fri": 5, "Sat": 6, "Sun": 7,
-    };
-
     const details = NotificationDetails(
       android: AndroidNotificationDetails(
         'reach_reminder',
@@ -279,18 +303,26 @@ class NotificationService {
     if (days.isEmpty) {
       final scheduled = _toTzDateTime(targetTime);
       final now = tz.TZDateTime.now(tz.local);
-      final safeTime =
-          scheduled.isAfter(now) ? scheduled : now.add(const Duration(seconds: 5));
-
       final int notifId = baseId + 100;
+
+      // Skip if already in the past — do not fire a spurious instant notification.
+      if (!scheduled.isAfter(now)) {
+        debugPrint(
+            '[NOTIF] schedulePackNotification ONE-SHOT SKIPPED (past) | id=$notifId '
+            '| target=${targetTime.toLocal()} | now=$now');
+        await _plugin.cancel(notifId);
+        return;
+      }
+
       debugPrint(
-          '[NOTIF] schedulePackNotification ONE-SHOT | id=$notifId | local=${targetTime.toLocal()} | tz=$safeTime');
+          '[NOTIF] schedulePackNotification ONE-SHOT | id=$notifId '
+          '| fireAt=$scheduled (in ${scheduled.difference(now).inMinutes} min)');
 
       await _plugin.zonedSchedule(
         notifId,
         packTitle,
         packBody,
-        safeTime,
+        scheduled,
         details,
         payload: payload,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -300,17 +332,22 @@ class NotificationService {
       return;
     }
 
+    // Recurring: use hour/minute from the computed pack time.
+    final localTime = targetTime.isUtc ? targetTime.toLocal() : targetTime;
+    final int targetHour = localTime.hour;
+    final int targetMinute = localTime.minute;
+
     for (int i = 0; i < days.length; i++) {
-      final int? weekday = dayMap[days[i]];
+      final int? weekday = _dayMap[days[i]];
       if (weekday == null) continue;
 
       final int notifId = baseId + 100 + i; // pack IDs: baseId+100, +101, … +106
       final tz.TZDateTime scheduled =
-          _nextInstanceOfDayAndTime(weekday, targetTime.hour, targetTime.minute);
+          _nextInstanceOfDayAndTime(weekday, targetHour, targetMinute);
 
       debugPrint(
           '[NOTIF] schedulePackNotification RECURRING | id=$notifId | day=${days[i]}($weekday) '
-          '| time=${targetTime.hour}:${targetTime.minute} | firstFire=$scheduled');
+          '| time=$targetHour:${targetMinute.toString().padLeft(2, '0')} | firstFire=$scheduled');
 
       await _plugin.zonedSchedule(
         notifId,
@@ -348,11 +385,6 @@ class NotificationService {
   }) async {
     await init();
 
-    final dayMap = {
-      "Mon": 1, "Tue": 2, "Wed": 3, "Thu": 4,
-      "Fri": 5, "Sat": 6, "Sun": 7,
-    };
-
     final String payload =
         'checkin:$commuteId:${plannedArriveTime.hour}:${plannedArriveTime.minute}';
 
@@ -385,17 +417,25 @@ class NotificationService {
       final int notifId = baseId + 200;
       final scheduled = _toTzDateTime(fireAt);
       final now = tz.TZDateTime.now(tz.local);
-      final safeTime =
-          scheduled.isAfter(now) ? scheduled : now.add(const Duration(seconds: 10));
+
+      // Skip if already in the past — do not fire a spurious instant notification.
+      if (!scheduled.isAfter(now)) {
+        debugPrint(
+            '[NOTIF] scheduleCheckinNotification ONE-SHOT SKIPPED (past) | id=$notifId '
+            '| target=${fireAt.toLocal()} | now=$now');
+        await _plugin.cancel(notifId);
+        return;
+      }
 
       debugPrint(
-          '[NOTIF] scheduleCheckinNotification ONE-SHOT | id=$notifId | fireAt=$safeTime');
+          '[NOTIF] scheduleCheckinNotification ONE-SHOT | id=$notifId '
+          '| fireAt=$scheduled (in ${scheduled.difference(now).inMinutes} min)');
 
       await _plugin.zonedSchedule(
         notifId,
         '📍 Did you reach?',
         'Tap to confirm your arrival.',
-        safeTime,
+        scheduled,
         details,
         payload: payload,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -407,11 +447,12 @@ class NotificationService {
 
     // RECURRING: one notification per selected weekday, repeats every week.
     // fireAt carries the correct H:M for arrival-5min; we use that time + weekday.
-    final checkinHour = fireAt.hour;
-    final checkinMinute = fireAt.minute;
+    final localFireAt = fireAt.isUtc ? fireAt.toLocal() : fireAt;
+    final checkinHour = localFireAt.hour;
+    final checkinMinute = localFireAt.minute;
 
     for (int i = 0; i < days.length; i++) {
-      final int? weekday = dayMap[days[i]];
+      final int? weekday = _dayMap[days[i]];
       if (weekday == null) continue;
 
       final int notifId = baseId + 200 + i; // check-in IDs: baseId+200..baseId+206
@@ -420,7 +461,7 @@ class NotificationService {
 
       debugPrint(
           '[NOTIF] scheduleCheckinNotification RECURRING | id=$notifId | day=${days[i]}($weekday) '
-          '| time=$checkinHour:$checkinMinute | firstFire=$scheduled');
+          '| time=$checkinHour:${checkinMinute.toString().padLeft(2, '0')} | firstFire=$scheduled');
 
       await _plugin.zonedSchedule(
         notifId,
@@ -466,6 +507,21 @@ class NotificationService {
     for (int i = 0; i <= 6; i++) {
       await _plugin.cancel(baseId + 200 + i);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // DEBUG: List all pending notifications
+  // ---------------------------------------------------------------------------
+
+  /// Returns a list of all currently pending notification details for debugging.
+  Future<List<PendingNotificationRequest>> getPendingNotifications() async {
+    await init();
+    final pending = await _plugin.pendingNotificationRequests();
+    debugPrint('[NOTIF] === ${pending.length} PENDING NOTIFICATIONS ===');
+    for (final n in pending) {
+      debugPrint('[NOTIF]   id=${n.id} | title=${n.title} | payload=${n.payload}');
+    }
+    return pending;
   }
 
   // ---------------------------------------------------------------------------
