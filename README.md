@@ -11,6 +11,7 @@ Reach is a smart commute assistant built with Flutter. Unlike standard alarms, R
 
 * **🧠 Smart Time Calculation:** Works backwards from your *Target Arrival Time*.
 * **⛅ Weather & Traffic Aware:** automatically adds buffer time if it detects rain or heavy traffic (via Mappls/MapMyIndia & OpenWeather).
+* **🚄 Multimodal Support:** Includes specialized context for train and flight modes, adjusting buffer times for station and airport security, check-ins, and boarding.
 * **📈 Adaptive Learning:** Learns your personal prep time and commute history to dynamically adjust buffer times for future trips.
 * **🔔 Multi-Stage Alarms:**
     1.  **"Pack Up" Alert:** Nudges you 15 minutes before departure so you have time to get ready.
