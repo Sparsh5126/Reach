@@ -46,9 +46,7 @@
     <application
         android:label="Reach."
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
-        android:showWhenLocked="true"
-        android:turnScreenOn="true">
+        android:icon="@mipmap/ic_launcher">
 
         <activity
             android:name=".MainActivity"

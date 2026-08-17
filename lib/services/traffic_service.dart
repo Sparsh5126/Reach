@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/foundation.dart';
+import 'route_service.dart';
 
 // Simple class to hold data + timestamp
 class _TrafficCacheItem {
@@ -15,10 +17,28 @@ class TrafficService {
   static final Map<String, _TrafficCacheItem> _cache = {};
   static const int _cacheDurationMinutes = 5;
 
-  Future<int> getAdjustedTravelDuration(double startLat, double startLon, String? destELoc) async {
-    if (destELoc == null) return 20; 
+  Future<int> getAdjustedTravelDuration(
+    double startLat,
+    double startLon,
+    String? destELoc, {
+    double? destLat,
+    double? destLon,
+    String? mode,
+  }) async {
+    String? destination;
+    if (destELoc != null && destELoc.trim().isNotEmpty) {
+      destination = destELoc.trim();
+    } else if (destLon != null &&
+        destLon != 0.0 &&
+        destLat != null &&
+        destLat != 0.0) {
+      destination = "$destLon,$destLat";
+    }
 
-    final String cacheKey = "${startLat.toStringAsFixed(3)}_${startLon.toStringAsFixed(3)}_$destELoc";
+    if (destination == null) return 20;
+
+    final String cacheKey =
+        "${startLat.toStringAsFixed(3)}_${startLon.toStringAsFixed(3)}_${mode ?? 'car'}_$destination";
 
     if (_cache.containsKey(cacheKey)) {
       final item = _cache[cacheKey]!;
@@ -28,33 +48,42 @@ class TrafficService {
       }
     }
 
-    final String? apiKey = dotenv.env['MAPPLS_API_KEY'];
-    if (apiKey == null) return 20;
-
-    final url = Uri.parse(
-        "https://apis.mappls.com/advancedmaps/v1/$apiKey/route_adv/driving/$startLon,$startLat;${destELoc.trim()}?steps=false&alternatives=false");
-
     try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['routes'] != null && data['routes'].isNotEmpty) {
-          final durationSeconds = data['routes'][0]['duration'] as num;
-          final durationMinutes = (durationSeconds / 60).round();
-          
-          _cache[cacheKey] = _TrafficCacheItem(durationMinutes, DateTime.now());
-          
-          return durationMinutes;
-        }
+      final durationMinutes = await RouteService.getTravelTime(
+        startLat: startLat,
+        startLon: startLon,
+        destination: destination,
+        mode: mode ?? 'car',
+      );
+
+      if (durationMinutes != null) {
+        _cache[cacheKey] = _TrafficCacheItem(durationMinutes, DateTime.now());
+        return durationMinutes;
       }
     } catch (e) {
-      if (_cache.containsKey(cacheKey)) return _cache[cacheKey]!.duration;
+      debugPrint("REACH APP: Traffic fetch error -> $e");
+    }
+
+    if (_cache.containsKey(cacheKey)) {
+      return _cache[cacheKey]!.duration;
     }
     return 35; // Fallback
   }
 
-  Map<String, String> calculateSmartTimes(String title, String arriveTimeStr, int travelMinutes, double rainFactor, String mode) {
-    final raw = calculateSmartTimesRaw(title, arriveTimeStr, travelMinutes, rainFactor, mode);
+  Map<String, String> calculateSmartTimes(
+    String title,
+    String arriveTimeStr,
+    int travelMinutes,
+    double rainFactor,
+    String mode,
+  ) {
+    final raw = calculateSmartTimesRaw(
+      title,
+      arriveTimeStr,
+      travelMinutes,
+      rainFactor,
+      mode,
+    );
     return {
       'leave': _formatTime(raw['leave']!),
       'ready': _formatTime(raw['ready']!),
@@ -63,7 +92,13 @@ class TrafficService {
 
   /// Returns the exact [DateTime] objects for leave and ready times.
   /// Use this for notification scheduling to preserve full date context.
-  Map<String, DateTime> calculateSmartTimesRaw(String title, String arriveTimeStr, int travelMinutes, double rainFactor, String mode) {
+  Map<String, DateTime> calculateSmartTimesRaw(
+    String title,
+    String arriveTimeStr,
+    int travelMinutes,
+    double rainFactor,
+    String mode,
+  ) {
     // 1. Parse Arrive Time
     final now = DateTime.now();
     int targetHour = 9;
@@ -85,16 +120,24 @@ class TrafficService {
     }
 
     int parkingBuffer = (mode == 'car') ? 10 : 2;
-    
+
     // Dynamic safety buffer: scales with trip length (15% of travel time),
     // clamped between 5 mins (for short/quick trips) and 15 mins (for long commutes)
     int safetyBuffer = (travelMinutes * 0.15).round().clamp(5, 15);
 
-    int totalCommute = travelMinutes + rainBuffer + parkingBuffer + safetyBuffer;
+    int totalCommute =
+        travelMinutes + rainBuffer + parkingBuffer + safetyBuffer;
 
-    DateTime arriveTime = DateTime(now.year, now.month, now.day, targetHour, targetMinute);
+    DateTime arriveTime = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      targetHour,
+      targetMinute,
+    );
     // If arrival time has passed, schedule for tomorrow.
-    if (arriveTime.isBefore(now)) arriveTime = arriveTime.add(const Duration(days: 1));
+    if (arriveTime.isBefore(now))
+      arriveTime = arriveTime.add(const Duration(days: 1));
 
     // 3. Subtract to find Leave Time
     DateTime leaveTime = arriveTime.subtract(Duration(minutes: totalCommute));
@@ -108,8 +151,8 @@ class TrafficService {
     //    (e.g. it's 8:35 AM, arrival is 9 AM, leaveTime is 8:25 AM → all past).
     if (!readyTime.isAfter(now)) {
       arriveTime = arriveTime.add(const Duration(days: 1));
-      leaveTime  = arriveTime.subtract(Duration(minutes: totalCommute));
-      readyTime  = leaveTime.subtract(const Duration(minutes: 15));
+      leaveTime = arriveTime.subtract(Duration(minutes: totalCommute));
+      readyTime = leaveTime.subtract(const Duration(minutes: 15));
     }
 
     return {
@@ -123,7 +166,10 @@ class TrafficService {
     int h = dt.hour;
     int m = dt.minute;
     String period = "AM";
-    if (h >= 12) { period = "PM"; if (h > 12) h -= 12; }
+    if (h >= 12) {
+      period = "PM";
+      if (h > 12) h -= 12;
+    }
     if (h == 0) h = 12;
     return "$h:${m.toString().padLeft(2, '0')} $period";
   }

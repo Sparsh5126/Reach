@@ -21,6 +21,8 @@ class HomeView extends StatefulWidget {
   final Function(Commute, int) onUndo;
   final Function(Commute) onNavigate;
   final Function(Commute) onFavoriteToggle;
+  final Future<void> Function() onDisableAllToday;
+  final Future<void> Function(Commute) onDisableToday;
 
   const HomeView({
     super.key,
@@ -31,6 +33,8 @@ class HomeView extends StatefulWidget {
     required this.onUndo,
     required this.onNavigate,
     required this.onFavoriteToggle,
+    required this.onDisableAllToday,
+    required this.onDisableToday,
   });
 
   @override
@@ -60,9 +64,11 @@ class _HomeViewState extends State<HomeView> {
   }
 
   Future<Map<String, dynamic>> _fetchWeather() {
-    final lat = widget.currentPos?.latitude ??
+    final lat =
+        widget.currentPos?.latitude ??
         (widget.commutes.isNotEmpty ? widget.commutes.first.lat : 28.6);
-    final lon = widget.currentPos?.longitude ??
+    final lon =
+        widget.currentPos?.longitude ??
         (widget.commutes.isNotEmpty ? widget.commutes.first.lon : 77.2);
     return WeatherService().getWeatherInfo(lat, lon);
   }
@@ -86,16 +92,57 @@ class _HomeViewState extends State<HomeView> {
                 children: [
                   Row(
                     children: [
-                      Text('Reach', style: ReachStyles.heading.copyWith(color: textColor)),
-                      const Text('.', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.orange)),
+                      Text(
+                        'Reach',
+                        style: ReachStyles.heading.copyWith(color: textColor),
+                      ),
+                      const Text(
+                        '.',
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.orange,
+                        ),
+                      ),
                     ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.settings),
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()));
-                    },
+                  Row(
+                    children: [
+                      // × Disable all today — only shown when commutes exist
+                      if (widget.commutes.isNotEmpty)
+                        Tooltip(
+                          message: 'Disable All Alarms Today',
+                          child: IconButton(
+                            icon: const Icon(Icons.notifications_off_outlined),
+                            iconSize: 20,
+                            color: Colors.grey,
+                            onPressed: () async {
+                              HapticFeedback.mediumImpact();
+                              await widget.onDisableAllToday();
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context)
+                                  ..clearSnackBars()
+                                  ..showSnackBar(
+                                    const SnackBar(
+                                      content: Text('All alarms disabled for today. Tomorrow\'s alarms are unchanged.'),
+                                      duration: Duration(seconds: 3),
+                                    ),
+                                  );
+                              }
+                            },
+                          ),
+                        ),
+                      IconButton(
+                        icon: const Icon(Icons.settings),
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const SettingsPage()),
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -121,7 +168,9 @@ class _HomeViewState extends State<HomeView> {
                     content: Text('${c.customTitle ?? c.title} deleted'),
                     behavior: SnackBarBehavior.floating,
                     margin: const EdgeInsets.all(20),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     action: SnackBarAction(
                       label: 'Undo',
                       textColor: ReachStyles.primaryOrange,
@@ -142,7 +191,11 @@ class _HomeViewState extends State<HomeView> {
               ),
               alignment: Alignment.centerRight,
               padding: const EdgeInsets.only(right: 25),
-              child: const Icon(Icons.delete_forever, color: Colors.white, size: 30),
+              child: const Icon(
+                Icons.delete_forever,
+                color: Colors.white,
+                size: 30,
+              ),
             ),
             child: _AsyncCommuteCard(
               key: ValueKey(c.id),
@@ -153,6 +206,7 @@ class _HomeViewState extends State<HomeView> {
               onEdit: () => widget.onEdit(c),
               onNavigate: widget.onNavigate,
               onFavoriteToggle: widget.onFavoriteToggle,
+              onDisableToday: widget.onDisableToday,
             ),
           );
         },
@@ -175,6 +229,7 @@ class _AsyncCommuteCard extends StatefulWidget {
   final VoidCallback onEdit;
   final Function(Commute) onNavigate;
   final Function(Commute) onFavoriteToggle;
+  final Future<void> Function(Commute) onDisableToday;
 
   const _AsyncCommuteCard({
     super.key,
@@ -185,6 +240,7 @@ class _AsyncCommuteCard extends StatefulWidget {
     required this.onEdit,
     required this.onNavigate,
     required this.onFavoriteToggle,
+    required this.onDisableToday,
   });
 
   @override
@@ -214,8 +270,14 @@ class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
   }
 
   Future<int> _fetchTraffic() {
-    return TrafficService()
-        .getAdjustedTravelDuration(widget.lat, widget.lon, widget.commute.eLoc);
+    return TrafficService().getAdjustedTravelDuration(
+      widget.lat,
+      widget.lon,
+      widget.commute.eLoc,
+      destLat: widget.commute.lat,
+      destLon: widget.commute.lon,
+      mode: widget.commute.mode,
+    );
   }
 
   @override
@@ -226,6 +288,7 @@ class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
         String leaveBy = '...';
         String readyBy = '...';
         String weatherEmoji = '';
+        bool isPassedToday = false;
 
         if (snapshot.hasData) {
           final weather = snapshot.data![0] as Map<String, dynamic>;
@@ -242,6 +305,15 @@ class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
                   weatherEmoji.contains('⛅'))) {
             weatherEmoji = '🌙';
           }
+
+          final rawSmart = TrafficService().calculateSmartTimesRaw(
+            widget.commute.title,
+            widget.commute.time,
+            traffic,
+            rain,
+            widget.commute.mode,
+          );
+          isPassedToday = rawSmart['ready']!.day != DateTime.now().day;
 
           final smart = TrafficService().calculateSmartTimes(
             widget.commute.title,
@@ -267,6 +339,7 @@ class _AsyncCommuteCardState extends State<_AsyncCommuteCard> {
           onDirections: () => widget.onNavigate(widget.commute),
           onDoubleTap: widget.onEdit,
           onFavoriteToggle: () => widget.onFavoriteToggle(widget.commute),
+          onDisableToday: isPassedToday ? null : () => widget.onDisableToday(widget.commute),
         );
       },
     );

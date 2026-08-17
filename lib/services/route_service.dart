@@ -1,20 +1,21 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
-import 'location_service.dart'; 
+import 'location_service.dart';
 
 class RouteService {
   // Mappls Distance Matrix API (handles traffic and precise routing)
-  static const String _baseUrl = "https://atlas.mappls.com/api/places/distance/matrix";
+  static const String _baseUrl =
+      "https://atlas.mappls.com/api/places/distance/matrix";
 
   static Future<int?> getTravelTime({
     required double startLat,
     required double startLon,
-    required String endELoc,
-    required String mode, 
+    required String destination,
+    required String mode,
   }) async {
     // 1. Get the token from our LocationService logic
-    String? token = await LocationService.getValidToken(); 
+    String? token = await LocationService.getValidToken();
 
     if (token == null) return null;
 
@@ -25,9 +26,9 @@ class RouteService {
       if (mode == 'walk') profile = 'walking';
 
       // Format: matrix/<profile>/<center>;<pts>
-      // We use the start coordinates and the destination eLoc
+      // We use the start coordinates and the destination (eLoc or coordinates)
       final url = Uri.parse(
-        "$_baseUrl/$profile/$startLon,$startLat;$endELoc?annotations=duration"
+        "$_baseUrl/$profile/$startLon,$startLat;$destination?annotations=duration",
       );
 
       final response = await http.get(
@@ -40,13 +41,13 @@ class RouteService {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        
+
         // Mappls returns a durations matrix
         if (data['results'] != null && data['results']['durations'] != null) {
-          final durationSeconds = data['results']['durations'][0][1]; 
-          
+          final durationSeconds = data['results']['durations'][0][1];
+
           if (durationSeconds == null) return null;
-          
+
           final durationMinutes = (durationSeconds / 60).round();
           return durationMinutes;
         }

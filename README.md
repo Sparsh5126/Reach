@@ -11,11 +11,16 @@ Reach is a smart commute assistant built with Flutter. Unlike standard alarms, R
 
 * **🧠 Smart Time Calculation:** Works backwards from your *Target Arrival Time*.
 * **⛅ Weather & Traffic Aware:** automatically adds buffer time if it detects rain or heavy traffic (via Mappls/MapMyIndia & OpenWeather).
-* **🔔 Dual-Stage Alarms:**
+* **📈 Adaptive Learning:** Learns your personal prep time and commute history to dynamically adjust buffer times for future trips.
+* **🔔 Multi-Stage Alarms:**
     1.  **"Pack Up" Alert:** Nudges you 15 minutes before departure so you have time to get ready.
     2.  **"Leave Now" Alarm:** Full-screen critical alert when traffic dictates you must move *now*.
+* **📍 Arrival Check-in:** Interactive notifications ask if you reached on time, feeding back into the adaptive learning engine.
+* **⏸️ Smart Snooze & Disable:** Easily disable individual alarms for the day or pause all alarms with a single tap if your plans change.
+* **⭐ Favorites System:** Pin your most frequent commutes for quick access.
 * **📅 Calendar Sync:** Automatically scans your device calendar for upcoming events and suggests setting reach alarms for them.
-* **🌗 Dynamic Theming:** UI adapts automatically based on the time of day (Navy for Morning, Grey for Day, Pitch Black for Night).
+* **🌗 Dynamic Theming:** UI adapts automatically based on the time of day (Deep Teal for Morning, Navy for Day, Pitch Black for Night, plus contextual weather emojis).
+* **🛠️ Advanced Diagnostics:** Built-in settings for notification testing, alarm simulation, and commute history management.
 * **📍 Navigation Handoff:** One-tap navigation to Google Maps or Mappls.
 * **⚡ Premium Feel:** Haptic feedback on interactions, swipe-to-delete with undo, and smooth animations.
 
@@ -49,15 +54,17 @@ Reach is a smart commute assistant built with Flutter. Unlike standard alarms, R
     ```bash
     flutter pub get
     ```
-3.  **Setup Keys (Optional):**
-    Create a `.env` file in the root and add your API keys:
+3.  **Setup Keys:**
+    Create a `.env` file in the root and add your Mappls OAuth credentials:
     ```env
-    MAPPLS_API_KEY=your_key_here
+    MAPPLS_CLIENT_ID=your_client_id_here
+    MAPPLS_CLIENT_SECRET=your_client_secret_here
     ```
 4.  **Run the app:**
     ```bash
     flutter run
     ```
+    *Note: Upon first launch, a one-time Privacy and Data Consent popup will require you to agree to data collection policies before permissions (Location, Calendar, Notifications) are requested.*
 
 ## 🤝 Contributing
 

@@ -105,6 +105,7 @@ class NotificationService {
     try {
       await androidPlugin?.requestNotificationsPermission();
       await androidPlugin?.requestExactAlarmsPermission();
+      await androidPlugin?.requestFullScreenIntentPermission();
     } catch (_) {}
   }
 
@@ -508,6 +509,45 @@ class NotificationService {
       await _plugin.cancel(baseId + 200 + i);
     }
   }
+
+  /// Cancels ONLY today's notification slot(s) for a commute.
+  ///
+  /// For recurring commutes ([days] non-empty): finds the index of today's
+  /// weekday in [days] and cancels that single slot for leave, pack, check-in.
+  /// Future weekly occurrences are unaffected — Android's
+  /// matchDateTimeComponents keeps the other day-slots active as normal.
+  ///
+  /// For one-shot commutes ([days] empty): cancels the base IDs (baseId,
+  /// baseId+100, baseId+200).
+  Future<void> cancelTodaysAlarms(int baseId, List<String> days) async {
+    await init();
+    final int today = DateTime.now().weekday; // 1 = Mon … 7 = Sun
+
+    if (days.isEmpty) {
+      // One-shot commute — just cancel the three single IDs.
+      debugPrint('[NOTIF] cancelTodaysAlarms ONE-SHOT | cancelling ids: '
+          '$baseId, ${baseId + 100}, ${baseId + 200}');
+      await _plugin.cancel(baseId);
+      await _plugin.cancel(baseId + 100);
+      await _plugin.cancel(baseId + 200);
+      return;
+    }
+
+    // Recurring — find the slot for today's weekday.
+    for (int i = 0; i < days.length; i++) {
+      final int? weekday = _dayMap[days[i]];
+      if (weekday == today) {
+        debugPrint('[NOTIF] cancelTodaysAlarms RECURRING | day=${days[i]} '
+            '| cancelling ids: ${baseId + i}, ${baseId + 100 + i}, ${baseId + 200 + i}');
+        await _plugin.cancel(baseId + i);
+        await _plugin.cancel(baseId + 100 + i);
+        await _plugin.cancel(baseId + 200 + i);
+        return;
+      }
+    }
+    debugPrint('[NOTIF] cancelTodaysAlarms | today (weekday=$today) not in days=$days — nothing to cancel');
+  }
+
 
   // ---------------------------------------------------------------------------
   // DEBUG: List all pending notifications

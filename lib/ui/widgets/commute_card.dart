@@ -17,6 +17,7 @@ class CommuteCard extends StatelessWidget {
   final VoidCallback onDoubleTap;
   final VoidCallback onDirections;
   final VoidCallback onFavoriteToggle;
+  final Future<void> Function()? onDisableToday;
   final String? weatherEmoji;
   final bool isFavorite;
 
@@ -33,6 +34,7 @@ class CommuteCard extends StatelessWidget {
     required this.onDirections,
     required this.onFavoriteToggle,
     required this.weatherEmoji,
+    this.onDisableToday,
     this.isFavorite = false,
   });
 
@@ -153,6 +155,14 @@ class CommuteCard extends StatelessWidget {
   }
 
   Widget _buildBottomRow(bool isDark, Color color) {
+    // Show the × disable-today button only when today is a scheduled day
+    // (or the commute has no recurring days — i.e. it's a one-shot/today commute).
+    const List<String> _weekdayNames = [
+      'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun',
+    ];
+    final String todayName = _weekdayNames[DateTime.now().weekday - 1];
+    final bool isToday = days.isEmpty || days.contains(todayName);
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -166,18 +176,51 @@ class CommuteCard extends StatelessWidget {
             ),
           ],
         ),
-        TextButton.icon(
-          onPressed: () {
-            HapticFeedback.mediumImpact();
-            onDirections();
-          },
-          style: TextButton.styleFrom(
-            backgroundColor: ReachStyles.primaryOrange.withOpacity(0.1),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          icon: Icon(Icons.directions_rounded, size: 16, color: ReachStyles.primaryOrange),
-          label: Text('Go', style: TextStyle(color: ReachStyles.primaryOrange, fontWeight: FontWeight.bold, fontSize: 12)),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // × Disable today button — only visible for today's commutes
+            if (isToday && onDisableToday != null)
+              Builder(
+                builder: (ctx) => GestureDetector(
+                  onTap: () async {
+                    HapticFeedback.mediumImpact();
+                    await onDisableToday!();
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(ctx)
+                        ..clearSnackBars()
+                        ..showSnackBar(
+                          SnackBar(
+                            content: Text('"$title" alarm disabled for today.'),
+                            duration: const Duration(seconds: 3),
+                          ),
+                        );
+                    }
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: Icon(
+                      Icons.notifications_off_outlined,
+                      size: 16,
+                      color: Colors.grey[500],
+                    ),
+                  ),
+                ),
+              ),
+            TextButton.icon(
+              onPressed: () {
+                HapticFeedback.mediumImpact();
+                onDirections();
+              },
+              style: TextButton.styleFrom(
+                backgroundColor: ReachStyles.primaryOrange.withOpacity(0.1),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: Icon(Icons.directions_rounded, size: 16, color: ReachStyles.primaryOrange),
+              label: Text('Go', style: TextStyle(color: ReachStyles.primaryOrange, fontWeight: FontWeight.bold, fontSize: 12)),
+            ),
+          ],
         ),
       ],
     );

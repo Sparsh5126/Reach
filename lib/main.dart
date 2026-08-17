@@ -49,40 +49,73 @@ void main() async {
 
   runApp(ReachApp(
     launchPayload: launchDetails?.notificationResponse?.payload,
+    launchedByAlarm:
+        (launchDetails?.didNotificationLaunchApp ?? false) &&
+        launchDetails?.notificationResponse?.payload == 'leave_alarm',
   ));
 }
 
 class ReachApp extends StatefulWidget {
   final String? launchPayload;
-  const ReachApp({super.key, this.launchPayload});
+  final bool launchedByAlarm;
+  const ReachApp({super.key, this.launchPayload, this.launchedByAlarm = false});
 
   @override
   State<ReachApp> createState() => _ReachAppState();
 }
 
-class _ReachAppState extends State<ReachApp> {
+class _ReachAppState extends State<ReachApp> with WidgetsBindingObserver {
+  bool _wasBackground = true;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
+    // Foreground notification taps — app already running.
+    // If it was in the background recently, treat it as launched by alarm.
     NotificationService().payloadStream.stream.listen((payload) {
-      _handlePayload(payload);
+      _handlePayload(payload, launchedByAlarm: _wasBackground);
     });
 
     if (widget.launchPayload != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _handlePayload(widget.launchPayload);
+        _handlePayload(
+          widget.launchPayload,
+          launchedByAlarm: widget.launchedByAlarm,
+        );
       });
     }
   }
 
-  void _handlePayload(String? payload) {
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden || state == AppLifecycleState.inactive) {
+      _wasBackground = true;
+    } else if (state == AppLifecycleState.resumed) {
+      // Delay resetting the flag so the payload stream has time to process
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) _wasBackground = false;
+      });
+    }
+  }
+
+  void _handlePayload(String? payload, {bool launchedByAlarm = false}) {
     if (payload == null) return;
 
-    if (payload == 'leave_alarm') {
+    if (payload == 'leave_alarm' || payload == 'ALARM') {
       navigatorKey.currentState?.push(
         MaterialPageRoute(
-          builder: (_) => AlarmScreen(payload: payload),
+          builder: (_) => AlarmScreen(
+            payload: payload,
+            launchedByAlarm: launchedByAlarm,
+          ),
           fullscreenDialog: true,
         ),
       );

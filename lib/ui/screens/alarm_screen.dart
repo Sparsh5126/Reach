@@ -4,8 +4,9 @@ import 'package:flutter/services.dart';
 
 class AlarmScreen extends StatefulWidget {
   final String payload;
+  final bool launchedByAlarm;
   
-  const AlarmScreen({super.key, required this.payload});
+  const AlarmScreen({super.key, required this.payload, this.launchedByAlarm = false});
 
   @override
   State<AlarmScreen> createState() => _AlarmScreenState();
@@ -64,7 +65,15 @@ class _AlarmScreenState extends State<AlarmScreen> {
     } catch (_) {}
 
     await Future.delayed(const Duration(milliseconds: 300));
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) {
+      if (widget.launchedByAlarm) {
+        // The app was woken by the alarm notification (fullScreenIntent).
+        // Send it back to the background instead of showing the main UI.
+        await SystemNavigator.pop();
+      } else {
+        Navigator.of(context).pop();
+      }
+    }
   }
 
   @override

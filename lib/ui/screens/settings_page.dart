@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../main.dart';
 import '../styles.dart';
 import '../../services/notification_service.dart';
+import 'learning_history_screen.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -43,6 +44,36 @@ class _SettingsPageState extends State<SettingsPage> {
         children: [
           _buildSectionHeader("Debug & Diagnostics"),
           const SizedBox(height: 10),
+
+          // ── Learning History (DEBUG viewer) ───────────────────────────────
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.history_edu_outlined, color: Colors.amber),
+            ),
+            title: const Text(
+              'Learning History',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text(
+              'DEBUG — View real commute history & adaptive buffers',
+            ),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const LearningHistoryScreen(),
+                ),
+              );
+            },
+          ),
+
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Container(

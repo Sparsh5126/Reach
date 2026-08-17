@@ -18,8 +18,8 @@ class ReachStyles {
   // ---------------------------------------------------------------------------
   static Color get dynamicDarkBg {
     final hour = DateTime.now().hour;
-    if (hour >= 5 && hour < 12) return navyBackground; // Morning: Deep Navy
-    if (hour >= 12 && hour < 18) return const Color(0xFF1C1C1E); // Day: Standard Grey
+    if (hour >= 5 && hour < 12) return const Color(0xFF0A1F22); // Morning: Deep Teal
+    if (hour >= 12 && hour < 18) return navyBackground; // Day: Deep Navy
     return const Color(0xFF000000); // Night: Pure Black
   }
 
@@ -28,8 +28,8 @@ class ReachStyles {
   // ---------------------------------------------------------------------------
   static Color get dynamicDarkCard {
     final hour = DateTime.now().hour;
-    if (hour >= 5 && hour < 12) return navyCard; // Morning: Slate Card
-    if (hour >= 12 && hour < 18) return const Color(0xFF2C2C2E); // Day: Standard Grey Card
+    if (hour >= 5 && hour < 12) return const Color(0xFF143033); // Morning: Deep Teal Card
+    if (hour >= 12 && hour < 18) return navyCard; // Day: Slate Card (Navy)
     return const Color(0xFF121212); // Night: Darker Card
   }
 
