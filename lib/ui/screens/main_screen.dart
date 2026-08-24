@@ -31,6 +31,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   List<Commute> myCommutes = [];
+  String? _userName;
   bool _ready = false;
   Position? _currentPosition;
   List<String> _ignoredEventIds = [];
@@ -82,6 +83,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     await _loadData();
 
     final prefs = await SharedPreferences.getInstance();
+    _userName = prefs.getString('user_name');
+    if (!(prefs.getBool('user_name_prompted') ?? false) && _userName == null) {
+      await WidgetsBinding.instance.endOfFrame;
+      await _showNamePrompt(prefs);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+    if (!mounted) return;
     final hasAcceptedPrivacy = prefs.getBool('has_accepted_privacy') ?? false;
 
     if (!hasAcceptedPrivacy) {
@@ -109,6 +117,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     await _determinePosition();
+    if (!mounted) return;
     setState(() => _ready = true);
 
     // Initial Silent Refresh on app start
@@ -128,7 +137,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     Position pos = await Geolocator.getCurrentPosition(
       desiredAccuracy: LocationAccuracy.medium,
     );
-    setState(() => _currentPosition = pos);
+    if (mounted) setState(() => _currentPosition = pos);
   }
 
   Future<void> _loadData() async {
@@ -138,6 +147,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final data = prefs.getString('commutes');
     if (data != null) {
       try {
+        if (!mounted) return;
         setState(() {
           myCommutes = (json.decode(data) as List)
               .map((e) => Commute.fromJson(e))
@@ -148,6 +158,60 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         debugPrint("Load error: $e");
       }
     }
+  }
+
+  Future<void> _showNamePrompt(SharedPreferences prefs) async {
+    if (!mounted) return;
+    var enteredName = '';
+    final name = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text("What should we call you?"),
+        content: _NamePromptField(
+          onChanged: (value) => enteredName = value,
+          onSubmitted: (name) => Navigator.pop(context, name),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Skip'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              context,
+              enteredName,
+            ),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    await prefs.setBool('user_name_prompted', true);
+    final trimmedName = name?.trim() ?? '';
+    if (trimmedName.isNotEmpty) {
+      await prefs.setString('user_name', trimmedName);
+      if (mounted) setState(() => _userName = trimmedName);
+    }
+  }
+
+  static DateTime _nextOccurrence(Commute commute, DateTime now) {
+    final time = commute.timeInMinutes;
+    final configuredDays = commute.days;
+    final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+    for (var offset = 0; offset < 7; offset++) {
+      final date = DateTime(now.year, now.month, now.day + offset);
+      if (configuredDays.isNotEmpty &&
+          !configuredDays.contains(dayNames[date.weekday - 1])) {
+        continue;
+      }
+      final occurrence = DateTime(date.year, date.month, date.day,
+          time ~/ 60, time % 60);
+      if (occurrence.isAfter(now)) return occurrence;
+    }
+
+    return DateTime(now.year, now.month, now.day + 7, time ~/ 60, time % 60);
   }
 
   /// Maps weekday int (1=Mon…7=Sun) → short name used in commute.days.
@@ -394,9 +458,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void _sortCommutes() {
+    final now = DateTime.now();
     myCommutes.sort((a, b) {
       if (a.isFavorite != b.isFavorite) return a.isFavorite ? -1 : 1;
-      return a.timeInMinutes.compareTo(b.timeInMinutes);
+      return _nextOccurrence(a, now).compareTo(_nextOccurrence(b, now));
     });
   }
 
@@ -691,6 +756,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             child: _selectedIndex == 0
                 ? HomeView(
                     commutes: myCommutes,
+                  userName: _userName,
+                    onNameChanged: (name) => setState(() => _userName = name),
                     currentPos: _currentPosition,
                     onEdit: _editCommute,
                     onDelete: _deleteCommute,
@@ -720,6 +787,47 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _NamePromptField extends StatefulWidget {
+  final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSubmitted;
+
+  const _NamePromptField({
+    required this.onChanged,
+    required this.onSubmitted,
+  });
+
+  @override
+  State<_NamePromptField> createState() => _NamePromptFieldState();
+}
+
+class _NamePromptFieldState extends State<_NamePromptField> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _controller,
+      autofocus: true,
+      textCapitalization: TextCapitalization.words,
+      decoration: const InputDecoration(hintText: 'Name'),
+      onChanged: widget.onChanged,
+      onSubmitted: (value) => widget.onSubmitted(value),
     );
   }
 }

@@ -15,6 +15,8 @@ import '../styles.dart';
 
 class HomeView extends StatefulWidget {
   final List<Commute> commutes;
+  final String? userName;
+  final ValueChanged<String?> onNameChanged;
   final Position? currentPos;
   final Function(Commute) onEdit;
   final Function(int) onDelete;
@@ -27,6 +29,8 @@ class HomeView extends StatefulWidget {
   const HomeView({
     super.key,
     required this.commutes,
+    this.userName,
+    required this.onNameChanged,
     this.currentPos,
     required this.onEdit,
     required this.onDelete,
@@ -73,6 +77,22 @@ class _HomeViewState extends State<HomeView> {
     return WeatherService().getWeatherInfo(lat, lon);
   }
 
+  String _commuteCount() {
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final now = DateTime.now();
+    final today = dayNames[now.weekday - 1];
+    final nowMinutes = now.hour * 60 + now.minute;
+
+    final count = widget.commutes.where((commute) {
+      final matchesToday = commute.days.isEmpty || commute.days.contains(today);
+      if (!matchesToday) return false;
+      return commute.timeInMinutes >= nowMinutes;
+    }).length;
+
+    if (count == 0) return 'No commutes today';
+    return '$count commute${count == 1 ? '' : 's'} today';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -87,27 +107,30 @@ class _HomeViewState extends State<HomeView> {
           if (index == 0) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 25),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Reach',
-                        style: ReachStyles.heading.copyWith(color: textColor),
+                      Row(
+                        children: [
+                          Text(
+                            'Reach',
+                            style: ReachStyles.heading.copyWith(color: textColor),
+                          ),
+                          const Text(
+                            '.',
+                            style: TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.orange,
+                            ),
+                          ),
+                        ],
                       ),
-                      const Text(
-                        '.',
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.orange,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
+                      Row(
+                        children: [
                       // × Disable all today — only shown when commutes exist
                       if (widget.commutes.isNotEmpty)
                         Tooltip(
@@ -132,19 +155,56 @@ class _HomeViewState extends State<HomeView> {
                             },
                           ),
                         ),
-                      IconButton(
+                        IconButton(
                         icon: const Icon(Icons.settings),
                         onPressed: () {
                           HapticFeedback.lightImpact();
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => const SettingsPage()),
+                            MaterialPageRoute(
+                              builder: (_) => SettingsPage(
+                                onNameChanged: widget.onNameChanged,
+                              ),
+                            ),
                           );
                         },
                       ),
+                        ],
+                      ),
                     ],
                   ),
-                ],
+                  const SizedBox(height: 14),
+                  Text.rich(
+                    TextSpan(
+                      text: 'Good ${DateTime.now().hour < 12 ? 'Morning' : (DateTime.now().hour < 17 ? 'Afternoon' : 'Evening')}',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                      children: widget.userName == null || widget.userName!.isEmpty
+                          ? [
+                              TextSpan(
+                                text: '.',
+                                style: TextStyle(color: ReachStyles.primaryOrange),
+                              ),
+                            ]
+                          : [
+                              const TextSpan(text: ', '),
+                              TextSpan(
+                                text: widget.userName,
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                              ),
+                              TextSpan(
+                                text: '.',
+                                style: TextStyle(color: Colors.orange),
+                              ),
+                            ],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(_commuteCount(), style: TextStyle(color: Colors.grey[600])),
+                    ],
               ),
             );
           }

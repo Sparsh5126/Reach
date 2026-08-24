@@ -66,10 +66,24 @@ class ReachApp extends StatefulWidget {
 
 class _ReachAppState extends State<ReachApp> with WidgetsBindingObserver {
   bool _wasBackground = true;
+  late final ThemeData _dynamicDarkTheme;
+  late final ThemeData _blackDarkTheme;
+  late final ThemeData _dynamicLightTheme;
+  late final ThemeData _lightTheme;
 
   @override
   void initState() {
     super.initState();
+    _dynamicDarkTheme = _createDarkTheme(
+      ReachStyles.dynamicDarkBg,
+      ReachStyles.dynamicDarkCard,
+    );
+    _blackDarkTheme = _createDarkTheme(
+      Colors.black,
+      const Color(0xFF121212),
+    );
+    _dynamicLightTheme = _createLightTheme(ReachStyles.dynamicLightBg);
+    _lightTheme = _createLightTheme(ReachStyles.lightBackground);
     WidgetsBinding.instance.addObserver(this);
 
     // Foreground notification taps — app already running.
@@ -122,65 +136,67 @@ class _ReachAppState extends State<ReachApp> with WidgetsBindingObserver {
     }
   }
 
+  ThemeData _createDarkTheme(Color background, Color card) {
+    final orange = ReachStyles.primaryOrange;
+    return ThemeData.dark().copyWith(
+      scaffoldBackgroundColor: background,
+      cardColor: card,
+      colorScheme: ColorScheme.dark(
+        primary: orange,
+        secondary: orange,
+        surface: card,
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: orange,
+          foregroundColor: Colors.white,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: orange),
+      ),
+    );
+  }
+
+  ThemeData _createLightTheme(Color background) {
+    final orange = ReachStyles.primaryOrange;
+    return ThemeData.light().copyWith(
+      scaffoldBackgroundColor: background,
+      cardColor: ReachStyles.lightCard,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.black,
+        elevation: 0,
+      ),
+      colorScheme: ColorScheme.light(
+        primary: orange,
+        secondary: orange,
+        surface: ReachStyles.lightCard,
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: orange,
+          foregroundColor: Colors.white,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: orange),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder2<ThemeMode, bool>(
       first: themeNotifier,
       second: dynamicThemeNotifier,
       builder: (context, currentMode, isDynamic, _) {
-        final darkBg =
-            isDynamic ? ReachStyles.dynamicDarkBg : ReachStyles.navyBackground;
-        final darkCard =
-            isDynamic ? ReachStyles.dynamicDarkCard : ReachStyles.navyCard;
-        final lightBg =
-            isDynamic ? ReachStyles.dynamicLightBg : ReachStyles.lightBackground;
-        final orange = ReachStyles.primaryOrange;
-
         return MaterialApp(
           navigatorKey: navigatorKey,
           debugShowCheckedModeBanner: false,
           themeMode: currentMode,
-          darkTheme: ThemeData.dark().copyWith(
-            scaffoldBackgroundColor: darkBg,
-            cardColor: darkCard,
-            colorScheme: ColorScheme.dark(
-              primary: orange,
-              secondary: orange,
-              surface: darkCard,
-            ),
-            elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: orange,
-                foregroundColor: Colors.white,
-              ),
-            ),
-            textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: orange),
-            ),
-          ),
-          theme: ThemeData.light().copyWith(
-            scaffoldBackgroundColor: lightBg,
-            cardColor: ReachStyles.lightCard,
-            appBarTheme: const AppBarTheme(
-              backgroundColor: Colors.transparent,
-              foregroundColor: Colors.black,
-              elevation: 0,
-            ),
-            colorScheme: ColorScheme.light(
-              primary: orange,
-              secondary: orange,
-              surface: ReachStyles.lightCard,
-            ),
-            elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: orange,
-                foregroundColor: Colors.white,
-              ),
-            ),
-            textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(foregroundColor: orange),
-            ),
-          ),
+          darkTheme: isDynamic ? _dynamicDarkTheme : _blackDarkTheme,
+          theme: isDynamic ? _dynamicLightTheme : _lightTheme,
           home: const MainScreen(),
         );
       },

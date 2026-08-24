@@ -92,31 +92,9 @@ class _LearningHistoryScreenState extends State<LearningHistoryScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Learning History'),
-            const SizedBox(width: 8),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.amber.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                    color: Colors.amber.withOpacity(0.5), width: 1),
-              ),
-              child: const Text(
-                'DEBUG',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.amber,
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ),
-          ],
+        title: const Text(
+          'Learning History',
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         backgroundColor: Colors.transparent,
@@ -170,8 +148,6 @@ class _LearningHistoryScreenState extends State<LearningHistoryScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.auto_awesome, size: 16, color: ReachStyles.primaryOrange),
-              const SizedBox(width: 8),
               Text(
                 'Global Learning',
                 style: TextStyle(

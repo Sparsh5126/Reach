@@ -7,7 +7,9 @@ import '../../services/notification_service.dart';
 import 'learning_history_screen.dart';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key});
+  final ValueChanged<String?>? onNameChanged;
+
+  const SettingsPage({super.key, this.onNameChanged});
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -15,6 +17,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   bool _isDarkMode = true;
   bool _fullScreenAlarmEnabled = true;
+  String? _userName;
 
   @override
   void initState() {
@@ -27,6 +30,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _isDarkMode = prefs.getBool('is_dark_mode') ?? true;
       _fullScreenAlarmEnabled = prefs.getBool('fullscreen_alarm_enabled') ?? true;
+      _userName = prefs.getString('user_name');
     });
   }
 
@@ -34,18 +38,95 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Settings"),
+        title: const Text(
+          "Settings",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         centerTitle: true,
-        backgroundColor: Colors.transparent,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
       ),
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
+          _buildSectionHeader("Preferences"),
+          const SizedBox(height: 10),
+
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text("Name", style: TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(_userName?.isNotEmpty == true ? _userName! : 'Not set'),
+            onTap: _editName,
+          ),
+
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              "Dark Mode",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            value: _isDarkMode,
+            activeColor: ReachStyles.primaryOrange,
+            onChanged: (val) async {
+              HapticFeedback.lightImpact();
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('is_dark_mode', val);
+              themeNotifier.value = val ? ThemeMode.dark : ThemeMode.light;
+              setState(() => _isDarkMode = val);
+            },
+          ),
+
+          ValueListenableBuilder<bool>(
+            valueListenable: dynamicThemeNotifier,
+            builder: (context, isDynamic, _) {
+              return SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  "Dynamic Theme",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: const Text("App background adapts to time of day"),
+                secondary: Icon(
+                  Icons.auto_awesome,
+                  color: ReachStyles.primaryOrange,
+                ),
+                value: isDynamic,
+                activeColor: ReachStyles.primaryOrange,
+                onChanged: (val) async {
+                  HapticFeedback.lightImpact();
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('is_dynamic_theme', val);
+                  dynamicThemeNotifier.value = val;
+                },
+              );
+            },
+          ),
+
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              "Full-Screen Alarm",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text("Wakes up the screen at 'Leave Now' time"),
+            secondary: Icon(
+              Icons.vibration_outlined,
+              color: ReachStyles.primaryOrange,
+            ),
+            value: _fullScreenAlarmEnabled,
+            activeColor: ReachStyles.primaryOrange,
+            onChanged: (val) async {
+              HapticFeedback.lightImpact();
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('fullscreen_alarm_enabled', val);
+              setState(() => _fullScreenAlarmEnabled = val);
+            },
+          ),
+          const SizedBox(height: 32),
+
           _buildSectionHeader("Debug & Diagnostics"),
           const SizedBox(height: 10),
 
-          // ── Learning History (DEBUG viewer) ───────────────────────────────
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Container(
@@ -61,7 +142,7 @@ class _SettingsPageState extends State<SettingsPage> {
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             subtitle: const Text(
-              'DEBUG — View real commute history & adaptive buffers',
+              'View real commute history & adaptive buffers',
             ),
             onTap: () {
               HapticFeedback.selectionClick();
@@ -191,78 +272,6 @@ class _SettingsPageState extends State<SettingsPage> {
               }
             },
           ),
-          const SizedBox(height: 32),
-
-          _buildSectionHeader("Preferences"),
-          const SizedBox(height: 10),
-
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text(
-              "Dark Mode",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            value: _isDarkMode,
-            activeColor: ReachStyles.primaryOrange,
-            onChanged: (val) async {
-              HapticFeedback.lightImpact();
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('is_dark_mode', val);
-              themeNotifier.value = val ? ThemeMode.dark : ThemeMode.light;
-              setState(() => _isDarkMode = val);
-            },
-          ),
-
-          ValueListenableBuilder<bool>(
-            valueListenable: dynamicThemeNotifier,
-            builder: (context, isDynamic, _) {
-              return SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  "Dynamic Theme",
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: const Text("App background adapts to time of day"),
-                secondary: Icon(
-                  Icons.auto_awesome,
-                  color: ReachStyles.primaryOrange,
-                ),
-                value: isDynamic,
-                activeColor: ReachStyles.primaryOrange,
-                onChanged: (val) async {
-                  HapticFeedback.lightImpact();
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setBool('is_dynamic_theme', val);
-                  dynamicThemeNotifier.value = val;
-                },
-              );
-            },
-          ),
-
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text(
-              "Full-Screen Alarm",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: const Text("Wakes up the screen at 'Leave Now' time"),
-            secondary: Icon(
-              Icons.vibration_outlined,
-              color: ReachStyles.primaryOrange,
-            ),
-            value: _fullScreenAlarmEnabled,
-            activeColor: ReachStyles.primaryOrange,
-            onChanged: (val) async {
-              HapticFeedback.lightImpact();
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('fullscreen_alarm_enabled', val);
-              setState(() => _fullScreenAlarmEnabled = val);
-            },
-          ),
-          const SizedBox(height: 32),
-
-          _buildSectionHeader("Advanced"),
-          const SizedBox(height: 10),
 
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -311,11 +320,12 @@ class _SettingsPageState extends State<SettingsPage> {
               );
             },
           ),
+          const SizedBox(height: 32),
 
           const SizedBox(height: 40),
           Center(
             child: Text(
-              "v4.0.0 • Reach",
+              "v4.5.0 • Reach",
               style: TextStyle(color: Colors.grey[600], fontSize: 12),
             ),
           ),
@@ -333,6 +343,69 @@ class _SettingsPageState extends State<SettingsPage> {
         fontWeight: FontWeight.bold,
         letterSpacing: 1.2,
       ),
+    );
+  }
+
+  Future<void> _editName() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => _NameEditDialog(initialName: _userName ?? ''),
+    );
+    if (name == null) return;
+    final trimmedName = name.trim();
+    final prefs = await SharedPreferences.getInstance();
+    if (trimmedName.isEmpty) {
+      await prefs.remove('user_name');
+    } else {
+      await prefs.setString('user_name', trimmedName);
+    }
+    if (mounted) setState(() => _userName = trimmedName.isEmpty ? null : trimmedName);
+    widget.onNameChanged?.call(trimmedName.isEmpty ? null : trimmedName);
+  }
+}
+
+class _NameEditDialog extends StatefulWidget {
+  final String initialName;
+
+  const _NameEditDialog({required this.initialName});
+
+  @override
+  State<_NameEditDialog> createState() => _NameEditDialogState();
+}
+
+class _NameEditDialogState extends State<_NameEditDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Name', style: TextStyle(fontWeight: FontWeight.bold)),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(hintText: 'Name'),
+        onSubmitted: (value) => Navigator.pop(context, value),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel',style: TextStyle(fontWeight: FontWeight.bold),)),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: const Text('Save',style: TextStyle(fontWeight: FontWeight.bold),),
+        ),
+      ],
     );
   }
 }
