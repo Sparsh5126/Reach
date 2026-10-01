@@ -4,6 +4,7 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'commute_history_service.dart';
 
 class NotificationService {
@@ -44,6 +45,9 @@ class NotificationService {
         if (response.payload?.startsWith('checkin:') == true) {
           notifHandleCheckin(response);
           return;
+        }
+        if (response.payload?.startsWith('leave_alarm:') == true) {
+          notifHandleLeave(response.payload!);
         }
         payloadStream.add(response.payload);
       },
@@ -86,12 +90,13 @@ class NotificationService {
     await androidPlugin?.createNotificationChannel(reminderChannel);
     await androidPlugin?.createNotificationChannel(checkinChannel);
 
+    // Only the in-app notification permission dialog here. Exact-alarms and
+    // full-screen-intent both navigate straight to a system Settings screen
+    // (no in-app dialog) — those are requested later via requestPermissions(),
+    // after the privacy dialog has been accepted, not unconditionally at
+    // cold start before any UI has even rendered.
     try {
       await androidPlugin?.requestNotificationsPermission();
-    } catch (_) {}
-
-    try {
-      await androidPlugin?.requestExactAlarmsPermission();
     } catch (_) {}
 
     _isInitialized = true;
@@ -172,6 +177,8 @@ class NotificationService {
   ///   recurring leave → baseId + dayIndex  (0-6)
   Future<void> scheduleLeaveAlarm(
     int baseId,
+    String commuteId,
+    String mode,
     DateTime targetTime, {
     List<String> days = const [],
     bool isRaining = false,
@@ -180,12 +187,12 @@ class NotificationService {
     await init();
 
     final String title =
-        isRaining ? '🌧️ RAIN DELAY: LEAVE NOW' : '🚀 LEAVE NOW';
+        isRaining ? '🌧️ RAIN DELAY: LEAVE NOW' : 'LEAVE NOW';
     final String body = isRaining
         ? 'Rain detected! Traffic is slower. Leave immediately to reach on time.'
         : 'Traffic is active. Leave immediately to reach on time.';
 
-    const String payload = 'leave_alarm';
+    final String payload = 'leave_alarm:$commuteId:$mode';
 
     final details = NotificationDetails(
       android: AndroidNotificationDetails(
@@ -298,7 +305,7 @@ class NotificationService {
     );
 
     const String payload = 'pack_alarm';
-    const String packTitle = '🎒 GET READY';
+    const String packTitle = 'GET READY';
     const String packBody = 'Start preparing to leave. Traffic check initiated.';
 
     if (days.isEmpty) {
@@ -380,6 +387,7 @@ class NotificationService {
   Future<void> scheduleCheckinNotification(
     int baseId,
     String commuteId,
+    String mode,
     DateTime fireAt,          // for one-shot: exact fire time
     DateTime plannedArriveTime, {
     List<String> days = const [],
@@ -387,7 +395,7 @@ class NotificationService {
     await init();
 
     final String payload =
-        'checkin:$commuteId:${plannedArriveTime.hour}:${plannedArriveTime.minute}';
+        'checkin:$commuteId:$mode:${plannedArriveTime.hour}:${plannedArriveTime.minute}';
 
     const details = NotificationDetails(
       android: AndroidNotificationDetails(
@@ -401,12 +409,17 @@ class NotificationService {
         actions: [
           AndroidNotificationAction(
             'reached',
-            '✅ Reached',
+            'Reached',
             cancelNotification: true,
           ),
           AndroidNotificationAction(
             'almost',
-            '🕐 Almost There',
+            'Almost There',
+            cancelNotification: true,
+          ),
+          AndroidNotificationAction(
+            'cancelled',
+            'Trip Cancelled',
             cancelNotification: true,
           ),
         ],
@@ -434,7 +447,7 @@ class NotificationService {
 
       await _plugin.zonedSchedule(
         notifId,
-        '📍 Did you reach?',
+        'Did you reach?',
         'Tap to confirm your arrival.',
         scheduled,
         details,
@@ -466,7 +479,7 @@ class NotificationService {
 
       await _plugin.zonedSchedule(
         notifId,
-        '📍 Did you reach?',
+        'Did you reach?',
         'Tap to confirm your arrival.',
         scheduled,
         details,
@@ -564,79 +577,6 @@ class NotificationService {
     return pending;
   }
 
-  // ---------------------------------------------------------------------------
-  // INSTANT TEST
-  // ---------------------------------------------------------------------------
-
-  Future<void> showTestNotification() async {
-    await init();
-
-    await _plugin.show(
-      888,
-      '🔔 Instant Test',
-      'Permissions are working perfectly.',
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'reach_reminder',
-          'Pack Up Reminder',
-          importance: Importance.max,
-          priority: Priority.max,
-          playSound: true,
-          enableVibration: true,
-        ),
-      ),
-    );
-  }
-
-  Future<void> startSimulation() async {
-    await init();
-    final now = tz.TZDateTime.now(tz.local);
-    final fireAt = now.add(const Duration(seconds: 15));
-
-    debugPrint('[DEBUG] Starting simulation in 15s (at $fireAt)');
-
-    await _plugin.zonedSchedule(
-      999,
-      '🚀 SIMULATION: Leave Now',
-      'This is a test of the full-screen alarm system.',
-      fireAt,
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'reach_alarm',
-          'Leave Now Alarm',
-          importance: Importance.max,
-          priority: Priority.max,
-          playSound: true,
-          enableVibration: true,
-          category: AndroidNotificationCategory.alarm,
-          fullScreenIntent: true,
-        ),
-      ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      payload: 'ALARM',
-    );
-  }
-
-  Future<void> testCheckinNotification() async {
-    await init();
-    final now = tz.TZDateTime.now(tz.local);
-    final fireAt = now.add(const Duration(seconds: 5));
-
-    // For testing, we set planned arrival to 5 mins ago so 'Reached' shows a delay.
-    final plannedArrive = DateTime.now().subtract(const Duration(minutes: 5));
-
-    debugPrint('[DEBUG] Testing Check-in in 5s');
-
-    await scheduleCheckinNotification(
-      777,
-      'test_commute_id',
-      fireAt,
-      plannedArrive,
-    );
-  }
-
   Future<void> cancelAllNotifications() async {
     await init();
     await _plugin.cancelAll();
@@ -648,63 +588,88 @@ class NotificationService {
 // TOP-LEVEL HANDLERS (must be top-level for background isolate access)
 // ---------------------------------------------------------------------------
 
+Future<void> notifHandleLeave(String payload) async {
+  if (!payload.startsWith('leave_alarm:')) return;
+  final parts = payload.split(':');
+  if (parts.length < 3) return;
+  
+  final commuteId = parts[1];
+  final mode = parts[2];
+  
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setInt('reach_depart_time_${commuteId}_$mode', DateTime.now().millisecondsSinceEpoch);
+  debugPrint('[NOTIF] Leave recorded for $commuteId ($mode) at ${DateTime.now()}');
+}
+
 /// Shared check-in response handler — works in both foreground and background.
-/// Parses payload `checkin:<commuteId>:<arriveEpochMs>` and saves outcome.
+/// Parses payload `checkin:<commuteId>:<mode>:<arriveHour>:<arriveMinute>` and saves outcome.
 Future<void> notifHandleCheckin(NotificationResponse response) async {
   final payload = response.payload ?? '';
   if (!payload.startsWith('checkin:')) return;
 
   final parts = payload.split(':');
-  if (parts.length < 4) return; // 'checkin', id, HH, mm
+  if (parts.length < 5) return; // 'checkin', id, mode, HH, mm
 
+  // parts[3]/parts[4] are the scheduled HH/mm. They are not read here: the
+  // elapsed time comes from the stored 'reach_depart_time_*' timestamp below,
+  // not from the scheduled time. Still required in the payload, hence the
+  // length check above.
   final commuteId = parts[1];
-  final hour = int.tryParse(parts[2]) ?? 0;
-  final minute = int.tryParse(parts[3]) ?? 0;
-
-  final now = DateTime.now();
-  // Reconstruct planned arrival for the current day.
-  DateTime plannedArrive = DateTime(now.year, now.month, now.day, hour, minute);
-
-  // Handle midnight rollover: snap to the occurrence closest to 'now'.
-  // If planned is 11:55 PM but it's 12:05 AM, plannedArrive should be 'yesterday'.
-  if (plannedArrive.difference(now).inHours > 12) {
-    plannedArrive = plannedArrive.subtract(const Duration(days: 1));
-  } else if (now.difference(plannedArrive).inHours > 12) {
-    plannedArrive = plannedArrive.add(const Duration(days: 1));
-  }
+  final mode = parts[2];
 
   final actionId = response.actionId ?? '';
-  final String outcome;
-  final int delayMinutes;
-
-  if (actionId == 'reached') {
-    outcome = 'reached';
-    // Positive = arrived after planned time, negative = early.
-    delayMinutes = DateTime.now().difference(plannedArrive).inMinutes;
-  } else if (actionId == 'almost') {
-    outcome = 'almost';
-    // User said "almost" — treat as approximately 10 min late.
-    delayMinutes = 10;
-  } else {
-    // Bare notification tap (no action button) — don't record ambiguous data.
-    debugPrint('[NOTIF] Check-in tapped without action — ignoring');
+  if (actionId == 'cancelled') {
+    // The trip didn't happen: drop the departure timestamp so nothing is
+    // recorded into history (it would otherwise skew the learned travel time).
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('reach_depart_time_${commuteId}_$mode');
+    debugPrint('[NOTIF] Trip cancelled by user | commuteId=$commuteId | mode=$mode — not recorded.');
+    return;
+  }
+  if (actionId != 'reached') {
+    debugPrint('[NOTIF] Check-in tapped without "reached" action — ignoring tracking.');
     return;
   }
 
-  debugPrint(
-      '[NOTIF] Check-in response | commuteId=$commuteId | outcome=$outcome | delay=$delayMinutes min');
+  final prefs = await SharedPreferences.getInstance();
+  final int? departTs = prefs.getInt('reach_depart_time_${commuteId}_$mode');
+  
+  if (departTs == null) {
+    debugPrint('[NOTIF] No departure time found for $commuteId ($mode). Trip not recorded.');
+    return;
+  }
 
-  await CommuteHistoryService.saveOutcome(
+  final departTime = DateTime.fromMillisecondsSinceEpoch(departTs);
+  final arriveTime = DateTime.now();
+  
+  // Calculate actual duration in minutes
+  final actualMinutes = arriveTime.difference(departTime).inMinutes;
+
+  // Since we don't have the exact mappls duration from when they left at hand,
+  // we can use a baseline or we can clear this since our history doesn't strictly 
+  // require mapplsMinutes for the actuals (it's stored for reference).
+  // I'll just pass the actual minutes as both for now, or use a heuristic.
+  // Wait, let's just use the median of history or standard map duration if needed, 
+  // but let's just log it.
+  await CommuteHistoryService.recordActualTravel(
     commuteId: commuteId,
-    outcome: outcome,
-    delayMinutes: delayMinutes,
+    mode: mode,
+    actualMinutes: actualMinutes,
+    mapplsMinutes: actualMinutes, // Fallback if we don't track original map duration
   );
+  
+  // Clear the depart time
+  await prefs.remove('reach_depart_time_${commuteId}_$mode');
+
+  debugPrint(
+      '[NOTIF] Check-in response | commuteId=$commuteId | mode=$mode | actual=$actualMinutes min');
 }
 
 @pragma('vm:entry-point')
 void notificationTapBackground(NotificationResponse response) {
-  // Handle check-in action buttons when the app is killed / in background.
   if (response.payload?.startsWith('checkin:') == true) {
     notifHandleCheckin(response);
+  } else if (response.payload?.startsWith('leave_alarm:') == true) {
+    notifHandleLeave(response.payload!);
   }
 }

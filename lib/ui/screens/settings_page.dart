@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../main.dart';
 import '../styles.dart';
-import '../../services/notification_service.dart';
-import 'learning_history_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../services/commute_history_service.dart';
+import 'commute_history_screen.dart';
+import 'guide_screen.dart';
 
 class SettingsPage extends StatefulWidget {
   final ValueChanged<String?>? onNameChanged;
@@ -18,6 +20,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _isDarkMode = true;
   bool _fullScreenAlarmEnabled = true;
   String? _userName;
+  int _gettingReadyTime = 15;
 
   @override
   void initState() {
@@ -31,6 +34,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _isDarkMode = prefs.getBool('is_dark_mode') ?? true;
       _fullScreenAlarmEnabled = prefs.getBool('fullscreen_alarm_enabled') ?? true;
       _userName = prefs.getString('user_name');
+      _gettingReadyTime = prefs.getInt('getting_ready_time') ?? 15;
     });
   }
 
@@ -59,6 +63,13 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: _editName,
           ),
 
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text("Getting ready time", style: TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text("$_gettingReadyTime minutes"),
+            onTap: _editGettingReadyTime,
+          ),
+
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text(
@@ -66,7 +77,7 @@ class _SettingsPageState extends State<SettingsPage> {
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             value: _isDarkMode,
-            activeColor: ReachStyles.primaryOrange,
+            activeThumbColor: ReachStyles.primaryOrange,
             onChanged: (val) async {
               HapticFeedback.lightImpact();
               final prefs = await SharedPreferences.getInstance();
@@ -91,7 +102,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   color: ReachStyles.primaryOrange,
                 ),
                 value: isDynamic,
-                activeColor: ReachStyles.primaryOrange,
+                activeThumbColor: ReachStyles.primaryOrange,
                 onChanged: (val) async {
                   HapticFeedback.lightImpact();
                   final prefs = await SharedPreferences.getInstance();
@@ -114,7 +125,7 @@ class _SettingsPageState extends State<SettingsPage> {
               color: ReachStyles.primaryOrange,
             ),
             value: _fullScreenAlarmEnabled,
-            activeColor: ReachStyles.primaryOrange,
+            activeThumbColor: ReachStyles.primaryOrange,
             onChanged: (val) async {
               HapticFeedback.lightImpact();
               final prefs = await SharedPreferences.getInstance();
@@ -124,210 +135,117 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 32),
 
-          _buildSectionHeader("Debug & Diagnostics"),
+          _buildSectionHeader("Data"),
           const SizedBox(height: 10),
 
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.amber.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.history_edu_outlined, color: Colors.amber),
+          _iconTile(
+            icon: Icons.history_edu_outlined,
+            color: Colors.amber,
+            title: 'Commute History',
+            subtitle: 'Your recorded trips & adaptive buffers',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CommuteHistoryScreen()),
             ),
-            title: const Text(
-              'Learning History',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: const Text(
-              'View real commute history & adaptive buffers',
-            ),
-            onTap: () {
-              HapticFeedback.selectionClick();
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const LearningHistoryScreen(),
-                ),
-              );
-            },
           ),
-
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.notifications_active_outlined,
-                color: Colors.green,
-              ),
-            ),
-            title: const Text(
-              "Instant Notification Test",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: const Text(
-              "Fires immediately — confirms permissions are granted",
-            ),
-            onTap: () async {
-              HapticFeedback.selectionClick();
-              await NotificationService().showTestNotification();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Notification sent! Check your shade."),
-                    backgroundColor: Colors.green,
-                    duration: Duration(seconds: 3),
-                  ),
-                );
-              }
-            },
+          _iconTile(
+            icon: Icons.history,
+            color: Colors.orange,
+            title: 'Reset Commute History',
+            subtitle: 'Clears your adaptive buffer & trip history',
+            onTap: _confirmReset,
           ),
+          const SizedBox(height: 32),
 
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.purple.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.timer_outlined, color: Colors.purple),
+          _buildSectionHeader("Help & About"),
+          const SizedBox(height: 10),
+
+          _iconTile(
+            icon: Icons.menu_book_outlined,
+            color: ReachStyles.primaryOrange,
+            title: 'Features & Guide',
+            subtitle: 'Features, gesture controls and terminology',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const GuideScreen()),
             ),
-            title: const Text(
-              "Scheduled Alarm Simulation",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: const Text(
-              "Fires in ~15s — lock your screen after tapping",
-            ),
-            onTap: () async {
-              HapticFeedback.selectionClick();
-              await NotificationService().startSimulation();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text("Scheduled! Lock your screen and wait ~15s."),
-                    backgroundColor: ReachStyles.primaryOrange,
-                    duration: const Duration(seconds: 5),
-                  ),
-                );
-              }
-            },
           ),
-
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.location_on_outlined, color: Colors.blue),
-            ),
-            title: const Text(
-              "Test Check-in Notification",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: const Text(
-              "Fires in ~5s — tests 'Reached' / 'Almost' buttons",
-            ),
-            onTap: () async {
-              HapticFeedback.selectionClick();
-              await NotificationService().testCheckinNotification();
-            },
-          ),
-
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.clear_all, color: Colors.red),
-            ),
-            title: const Text(
-              "Clear All Notifications",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: const Text(
-              "Cancels all pending and active alarms",
-            ),
-            onTap: () async {
-              HapticFeedback.selectionClick();
-              await NotificationService().cancelAllNotifications();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("All notifications cleared.")),
-                );
-              }
-            },
-          ),
-
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.history, color: Colors.orange),
-            ),
-            title: const Text(
-              "Reset Learning History",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: const Text(
-              "Clears your adaptive buffer & trip history",
-            ),
-            onTap: () {
-              HapticFeedback.heavyImpact();
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text("Reset History?"),
-                  content: const Text("This will clear all learned traffic data and return buffers to 0. This cannot be undone."),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-                    TextButton(
-                      onPressed: () async {
-                        final prefs = await SharedPreferences.getInstance();
-                        final keys = prefs.getKeys().where((k) => k.startsWith('reach_')).toList();
-                        for (final k in keys) {
-                          await prefs.remove(k);
-                        }
-                        if (context.mounted) Navigator.pop(context);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text("Learning history cleared.")),
-                          );
-                        }
-                      },
-                      child: const Text("Reset", style: TextStyle(color: Colors.red)),
-                    ),
-                  ],
-                ),
-              );
-            },
+          _iconTile(
+            icon: Icons.code_rounded,
+            color: Colors.blue,
+            title: 'Reach on GitHub',
+            subtitle: 'Source code, issues and updates',
+            onTap: _openRepo,
           ),
           const SizedBox(height: 32),
 
           const SizedBox(height: 40),
           Center(
             child: Text(
-              "v4.5.0 • Reach",
+              "v5.0.0 • Reach",
               style: TextStyle(color: Colors.grey[600], fontSize: 12),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static const _repoUrl = 'https://github.com/Sparsh5126/Reach';
+
+  Widget _iconTile({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
+        child: Icon(icon, color: color),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+    );
+  }
+
+  Future<void> _openRepo() async {
+    final ok = await launchUrl(Uri.parse(_repoUrl), mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't open the link.")),
+      );
+    }
+  }
+
+  void _confirmReset() {
+    HapticFeedback.heavyImpact();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Reset Commute History?"),
+        content: const Text("This will clear all learned traffic data and return buffers to 0. This cannot be undone."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () async {
+              await CommuteHistoryService.clearAllHistory();
+              if (context.mounted) Navigator.pop(context);
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  const SnackBar(content: Text("Commute history cleared.")),
+                );
+              }
+            },
+            child: const Text("Reset", style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -361,6 +279,59 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     if (mounted) setState(() => _userName = trimmedName.isEmpty ? null : trimmedName);
     widget.onNameChanged?.call(trimmedName.isEmpty ? null : trimmedName);
+  }
+
+  Future<void> _editGettingReadyTime() async {
+    int? newTime = await showDialog<int>(
+      context: context,
+      builder: (context) {
+        int tempTime = _gettingReadyTime;
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text("Getting Ready Time", style: TextStyle(fontWeight: FontWeight.bold)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("How long do you usually need to get ready before leaving?"),
+                const SizedBox(height: 16),
+                DropdownButton<int>(
+                  value: tempTime,
+                  isExpanded: true,
+                  underline: Container(height: 2, color: ReachStyles.primaryOrange),
+                  items: [0, 5, 10, 15, 20, 25, 30, 45, 60].map((int value) {
+                    return DropdownMenuItem<int>(
+                      value: value,
+                      child: Text("$value minutes"),
+                    );
+                  }).toList(),
+                  onChanged: (int? newValue) {
+                    if (newValue != null) {
+                      setDialogState(() => tempTime = newValue);
+                    }
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel", style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, tempTime),
+                child: const Text("Save", style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (newTime != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('getting_ready_time', newTime);
+      setState(() => _gettingReadyTime = newTime);
+    }
   }
 }
 

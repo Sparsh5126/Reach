@@ -14,6 +14,12 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.dark);
 final ValueNotifier<bool> dynamicThemeNotifier = ValueNotifier(true);
 
+/// Leave alarms are scheduled with payload `leave_alarm:<commuteId>:<mode>`
+/// (see NotificationService.scheduleLeaveAlarm); older builds used the bare
+/// string. Match both, or the alarm screen is never shown.
+bool _isAlarmPayload(String? p) =>
+    p != null && (p == 'leave_alarm' || p == 'ALARM' || p.startsWith('leave_alarm:'));
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -32,8 +38,13 @@ void main() async {
   dynamicThemeNotifier.value = isDynamic;
 
   try {
+    // Only initialize here — channels/timezone setup, nothing user-facing.
+    // requestPermissions() (which includes the full-screen-intent request —
+    // an Android Settings-page jump, not an in-app dialog) is called later
+    // from MainScreen._initApp(), after the privacy dialog is accepted.
+    // Calling it here too used to fire it at cold start, before any UI
+    // (including the privacy dialog) had even rendered.
     await NotificationService().init();
-    await NotificationService().requestPermissions();
   } catch (e, st) {
     debugPrint("Notification init failed: $e\n$st");
   }
@@ -51,7 +62,7 @@ void main() async {
     launchPayload: launchDetails?.notificationResponse?.payload,
     launchedByAlarm:
         (launchDetails?.didNotificationLaunchApp ?? false) &&
-        launchDetails?.notificationResponse?.payload == 'leave_alarm',
+        _isAlarmPayload(launchDetails?.notificationResponse?.payload),
   ));
 }
 
@@ -123,7 +134,7 @@ class _ReachAppState extends State<ReachApp> with WidgetsBindingObserver {
   void _handlePayload(String? payload, {bool launchedByAlarm = false}) {
     if (payload == null) return;
 
-    if (payload == 'leave_alarm' || payload == 'ALARM') {
+    if (_isAlarmPayload(payload)) {
       navigatorKey.currentState?.push(
         MaterialPageRoute(
           builder: (_) => AlarmScreen(

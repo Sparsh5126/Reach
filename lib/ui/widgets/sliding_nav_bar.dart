@@ -18,13 +18,13 @@ class SlidingNavBar extends StatelessWidget {
     
     // Background: Use Dynamic Card Color
     final bgColor = isDark 
-        ? Theme.of(context).cardColor.withOpacity(0.95) 
-        : Colors.white.withOpacity(0.95);
+        ? Theme.of(context).cardColor.withValues(alpha: 0.95) 
+        : Colors.white.withValues(alpha: 0.95);
         
     // Border: Subtle white (Dark) vs Subtle grey (Light)
     final borderColor = isDark 
-        ? Colors.white.withOpacity(0.05) 
-        : Colors.black.withOpacity(0.05);
+        ? Colors.white.withValues(alpha: 0.05) 
+        : Colors.black.withValues(alpha: 0.05);
 
     // Text Colors
     final unselectedTextColor = isDark ? Colors.grey[500] : Colors.grey[600];
@@ -32,7 +32,7 @@ class SlidingNavBar extends StatelessWidget {
     // Shadow: Lift the entire bar slightly
     final List<BoxShadow> barShadows = [
       BoxShadow(
-        color: Colors.black.withOpacity(isDark ? 0.4 : 0.1),
+        color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.1),
         blurRadius: 15,
         offset: const Offset(0, 5),
       ),
@@ -73,7 +73,7 @@ class SlidingNavBar extends StatelessWidget {
                     borderRadius: BorderRadius.circular(100), 
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.orange.withOpacity(0.3),
+                        color: Colors.orange.withValues(alpha: 0.3),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       )

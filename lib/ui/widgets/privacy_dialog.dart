@@ -9,10 +9,13 @@ class PrivacyDialog extends StatelessWidget {
     await showDialog(
       context: context,
       barrierDismissible: false,
-      barrierColor: Colors.black.withOpacity(0.85),
-      builder: (context) => WillPopScope(
-        onWillPop: () async => false, // Prevent dismissing with back button
-        child: const PrivacyDialog(),
+      barrierColor: Colors.black.withValues(alpha: 0.85),
+      builder: (context) => const PopScope(
+        // Prevent dismissing with the back button. PopScope replaces
+        // WillPopScope, which silently disables Android's predictive-back
+        // animation for the whole route it wraps.
+        canPop: false,
+        child: PrivacyDialog(),
       ),
     );
   }
@@ -21,7 +24,7 @@ class PrivacyDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? ReachStyles.darkText : ReachStyles.lightText;
-    final bgColor = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final bgColor = isDark ? Theme.of(context).cardColor : ReachStyles.lightCard;
     final accentColor = ReachStyles.primaryOrange;
 
     return Center(
@@ -31,18 +34,18 @@ class PrivacyDialog extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 400),
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(32),
+          borderRadius: ReachStyles.cardRadius,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.3),
+              color: Colors.black.withValues(alpha: 0.3),
               blurRadius: 20,
               offset: const Offset(0, 10),
             ),
           ],
           border: Border.all(
             color: isDark
-                ? Colors.white.withOpacity(0.05)
-                : Colors.black.withOpacity(0.05),
+                ? Colors.white.withValues(alpha: 0.05)
+                : Colors.black.withValues(alpha: 0.05),
           ),
         ),
         child: Material(
@@ -57,7 +60,7 @@ class PrivacyDialog extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: accentColor.withOpacity(0.1),
+                      color: accentColor.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -96,7 +99,7 @@ class PrivacyDialog extends StatelessWidget {
               // Bullet points of permissions/data
               _buildConsentItem(
                 icon: Icons.location_on_rounded,
-                color: Colors.blueAccent,
+                color: accentColor,
                 title: "Location Access",
                 description:
                     "Used to fetch real-time traffic and route travel durations dynamically.",
@@ -105,7 +108,7 @@ class PrivacyDialog extends StatelessWidget {
               const SizedBox(height: 16),
               _buildConsentItem(
                 icon: Icons.calendar_month_rounded,
-                color: Colors.greenAccent[700]!,
+                color: accentColor,
                 title: "Calendar Scanning",
                 description:
                     "Scans travel events locally on-device to auto-setup leave reminders.",
@@ -114,7 +117,7 @@ class PrivacyDialog extends StatelessWidget {
               const SizedBox(height: 16),
               _buildConsentItem(
                 icon: Icons.notifications_active_rounded,
-                color: Colors.orangeAccent[700]!,
+                color: accentColor,
                 title: "Smart Notifications",
                 description:
                     "Triggers leave-now alarms and pack-up notifications in the background.",
@@ -157,7 +160,7 @@ class PrivacyDialog extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: accentColor,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: ReachStyles.buttonRadius,
                     ),
                     elevation: 0,
                   ),
@@ -196,7 +199,7 @@ class PrivacyDialog extends StatelessWidget {
           margin: const EdgeInsets.only(top: 2),
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(icon, color: color, size: 18),

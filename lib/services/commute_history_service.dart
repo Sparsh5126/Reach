@@ -2,196 +2,174 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Two-tier personalized learning engine for Reach.
-///
-/// TIER 1 — GLOBAL (cross-commute): Tracks the user's general lateness habit
-///   across ALL commutes. Captures things like slow preparation, parking
-///   delays, walking speed, general tendency to leave late.
-///
-/// TIER 2 — COMMUTE-SPECIFIC: Tracks route-specific delays for each commute
-///   independently (e.g. college traffic unpredictability, office parking).
-///
-/// FORMULA (applied in _saveCommute):
-///   adaptiveBuffer = (globalAvg + commuteAvg).clamp(0, 15)
-///   trafficBuffer  += adaptiveBuffer
-///
-/// ROLLING WINDOW: last 7 outcomes only — older data is discarded so the
-///   system adapts to current behavior, not stale history.
-///
-/// CAP: Combined adaptive buffer is hard-capped at 15 minutes to prevent
-///   unstable schedules from single outlier trips.
+class HistoryEstimate {
+  final int predictedMinutes;
+  final String tier;
+  final int sampleCount;
+  final String explanation;
+
+  HistoryEstimate({
+    required this.predictedMinutes,
+    required this.tier,
+    required this.sampleCount,
+    required this.explanation,
+  });
+}
+
 class CommuteHistoryService {
-  // ── Storage keys ──────────────────────────────────────────────────────────
-  static const String _commuteHistoryPrefix = 'reach_history_';
-  static const String _commuteBufferPrefix  = 'reach_cbuffer_';
-  static const String _globalHistoryKey     = 'reach_global_history';
-  static const String _globalBufferKey      = 'reach_global_buffer';
+  static const String _commuteHistoryPrefix = 'reach_travel_history_';
 
-  // ── Parameters ────────────────────────────────────────────────────────────
-  static const int _rollingWindow    = 7;  // keep only last 7 outcomes
-  static const int _minDataPoints    = 3;  // need at least 3 before adjusting
-  static const int _maxAdaptiveBuffer = 15; // hard cap: global + commute ≤ 15 min
+  static const int _windowSize = 12; // Keep last 12 trips
 
-  // ── PUBLIC: Save outcome ──────────────────────────────────────────────────
+  // A single-leg local commute realistically never takes longer than this.
+  // notifHandleCheckin() measures actualMinutes as wall-clock time between a
+  // stored "departed" timestamp and whenever "Reached" gets tapped — a stale
+  // or dismissed-then-late-tapped check-in notification (or a depart marker
+  // that never got cleared) can turn that into thousands of minutes. Without
+  // this guard, one such tap permanently pollutes the learned median.
+  static const int _maxSaneMinutes = 240;
 
-  /// Record one commute session result and update both learning tiers.
-  ///
-  /// [outcome]      — 'reached' | 'almost' | 'unknown'
-  /// [delayMinutes] — positive = arrived late, negative = arrived early.
-  ///                  For 'almost' responses this is a fixed +10.
-  static Future<void> saveOutcome({
+  // ── PUBLIC: Record actual travel time ──────────────────────────────────────
+
+  /// Records the actual time taken from departure to arrival.
+  static Future<void> recordActualTravel({
     required String commuteId,
-    required String outcome,
-    required int delayMinutes,
+    required String mode,
+    required int actualMinutes,
+    required int mapplsMinutes,
   }) async {
-    if (outcome == 'unknown') return; // don't pollute averages with no-ops
-
+    if (actualMinutes <= 0 || actualMinutes > _maxSaneMinutes) {
+      debugPrint('[LEARN] Discarding implausible trip duration: actual=$actualMinutes min (id=$commuteId, mode=$mode)');
+      return;
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
+      final key = '$_commuteHistoryPrefix${commuteId}_$mode';
 
-      // ── Tier 2: Commute-specific ──
-      await _appendAndTrim(
-        prefs,
-        key: '$_commuteHistoryPrefix$commuteId',
-        entry: _entry(outcome, delayMinutes),
-      );
-      await _recomputeBuffer(
-        prefs,
-        historyKey: '$_commuteHistoryPrefix$commuteId',
-        bufferKey:  '$_commuteBufferPrefix$commuteId',
-        label: 'commute($commuteId)',
-      );
+      List<Map<String, dynamic>> list = _load(prefs.getString(key));
 
-      // ── Tier 1: Global (all commutes) ──
-      await _appendAndTrim(
-        prefs,
-        key: _globalHistoryKey,
-        entry: _entry(outcome, delayMinutes),
-      );
-      await _recomputeBuffer(
-        prefs,
-        historyKey: _globalHistoryKey,
-        bufferKey:  _globalBufferKey,
-        label: 'global',
-      );
-
-      debugPrint('[LEARN] saveOutcome | id=$commuteId | outcome=$outcome | delay=$delayMinutes min');
+      list.add({
+        'actualMinutes': actualMinutes,
+        'mapplsMinutes': mapplsMinutes,
+        'ts': DateTime.now().millisecondsSinceEpoch,
+      });
+      
+      // Keep bounded window
+      if (list.length > _windowSize) {
+        list = list.sublist(list.length - _windowSize);
+      }
+      
+      await prefs.setString(key, json.encode(list));
+      debugPrint('[LEARN] Recorded trip: id=$commuteId | mode=$mode | actual=$actualMinutes | mappls=$mapplsMinutes');
     } catch (e) {
-      debugPrint('[LEARN] saveOutcome error: $e');
+      debugPrint('[LEARN] recordActualTravel error: $e');
     }
   }
 
-  // ── PUBLIC: Get combined capped buffer ────────────────────────────────────
+  // ── PUBLIC: Predict travel time ───────────────────────────────────────────
 
-  /// Returns the adaptive buffer to add to the base traffic buffer.
-  ///
-  ///   result = (globalAvg + commuteAvg).clamp(0, 15)
-  ///
-  /// Returns 0 if there are fewer than [_minDataPoints] sessions in either
-  /// tier — avoids over-correcting too early.
-  static Future<int> getLearnedBuffer(String commuteId) async {
+  /// Predicts travel time using the robust median of past trips, depending on data tiers.
+  static Future<HistoryEstimate> getPredictedTravel({
+    required String commuteId,
+    required String mode,
+    required int mapplsMinutes,
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      final key = '$_commuteHistoryPrefix${commuteId}_$mode';
+      // Filter out any already-stored implausible samples (e.g. recorded
+      // before this guard existed) so old corrupted data can't keep dragging
+      // the median off — see _maxSaneMinutes.
+      final list = _load(prefs.getString(key))
+          .where((e) {
+            final actual = (e['actualMinutes'] as num?)?.toInt() ?? 0;
+            return actual > 0 && actual <= _maxSaneMinutes;
+          })
+          .toList();
 
-      final globalBuffer  = prefs.getInt(_globalBufferKey) ?? 0;
-      final commuteBuffer = prefs.getInt('$_commuteBufferPrefix$commuteId') ?? 0;
-
-      final combined = (globalBuffer + commuteBuffer).clamp(0, _maxAdaptiveBuffer);
-
-      debugPrint('[LEARN] getLearnedBuffer | id=$commuteId '
-          '| global=$globalBuffer min | commute=$commuteBuffer min '
-          '| combined=$combined min (cap=$_maxAdaptiveBuffer)');
-
-      return combined;
+      final int sampleCount = list.length;
+      
+      if (sampleCount <= 2) {
+        // No history tier
+        return HistoryEstimate(
+          predictedMinutes: mapplsMinutes,
+          tier: 'No history',
+          sampleCount: sampleCount,
+          explanation: 'Insufficient data. Using standard routing.',
+        );
+      }
+      
+      // Compute robust median of actual travel times
+      final actuals = list.map((e) => (e['actualMinutes'] as num).toInt()).toList();
+      actuals.sort();
+      final int medianActual = actuals[actuals.length ~/ 2];
+      
+      if (sampleCount <= 9) {
+        // Some history tier: Blend Mappls and History
+        // Weight goes from 0.3 (at 3 trips) to 0.9 (at 9 trips)
+        double historyWeight = sampleCount / 10.0;
+        int blended = (medianActual * historyWeight + mapplsMinutes * (1 - historyWeight)).round();
+        
+        return HistoryEstimate(
+          predictedMinutes: blended,
+          tier: 'Some history',
+          sampleCount: sampleCount,
+          explanation: 'Blended standard routing with limited past trips.',
+        );
+      } else {
+        // Strong history tier
+        // Use median, but allow Mappls to influence if it predicts an unusually high duration 
+        // (e.g. major accident). If Mappls > median, we assume there's a reason.
+        int predicted = medianActual;
+        if (mapplsMinutes > medianActual + 5) {
+          // If Mappls is significantly higher, blend heavily towards Mappls to reflect current conditions
+          predicted = (medianActual * 0.3 + mapplsMinutes * 0.7).round();
+        }
+        
+        return HistoryEstimate(
+          predictedMinutes: predicted,
+          tier: 'Strong history',
+          sampleCount: sampleCount,
+          explanation: 'Based heavily on your personalized history.',
+        );
+      }
+      
     } catch (e) {
-      debugPrint('[LEARN] getLearnedBuffer error: $e');
-      return 0;
+      debugPrint('[LEARN] getPredictedTravel error: $e');
+      return HistoryEstimate(
+        predictedMinutes: mapplsMinutes,
+        tier: 'Error',
+        sampleCount: 0,
+        explanation: 'Fallback to routing due to error.',
+      );
     }
   }
 
   // ── PUBLIC: Debug / inspection ────────────────────────────────────────────
 
-  static Future<List<Map<String, dynamic>>> getCommuteHistory(String commuteId) async {
+  static Future<List<Map<String, dynamic>>> getTravelHistory(String commuteId, String mode) async {
     final prefs = await SharedPreferences.getInstance();
-    return _load(prefs.getString('$_commuteHistoryPrefix$commuteId'));
+    return _load(prefs.getString('$_commuteHistoryPrefix${commuteId}_$mode'));
   }
 
-  static Future<List<Map<String, dynamic>>> getGlobalHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    return _load(prefs.getString(_globalHistoryKey));
-  }
-
-  // ── PUBLIC: Cleanup ───────────────────────────────────────────────────────
-
-  /// Clears commute-specific data when a commute is deleted.
-  /// Global history is intentionally preserved — it reflects the user's
-  /// overall habits regardless of which commutes exist.
   static Future<void> clearHistory(String commuteId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('$_commuteHistoryPrefix$commuteId');
-      await prefs.remove('$_commuteBufferPrefix$commuteId');
-      debugPrint('[LEARN] Cleared commute-specific history | id=$commuteId');
-    } catch (e) {
-      debugPrint('[LEARN] clearHistory error: $e');
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().where((k) => k.startsWith('$_commuteHistoryPrefix$commuteId')).toList();
+    for (final k in keys) {
+      await prefs.remove(k);
+    }
+  }
+
+  /// Removes the recorded trips for every commute. Touches only history keys.
+  static Future<void> clearAllHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().where((k) => k.startsWith(_commuteHistoryPrefix)).toList();
+    for (final k in keys) {
+      await prefs.remove(k);
     }
   }
 
   // ── PRIVATE helpers ───────────────────────────────────────────────────────
-
-  static Map<String, dynamic> _entry(String outcome, int delayMinutes) => {
-    'outcome': outcome,
-    'delayMinutes': delayMinutes,
-    'ts': DateTime.now().millisecondsSinceEpoch,
-  };
-
-  /// Appends [entry] to the JSON list stored at [key] and trims to the last
-  /// [_rollingWindow] entries. Oldest entries are dropped automatically.
-  static Future<void> _appendAndTrim(
-    SharedPreferences prefs, {
-    required String key,
-    required Map<String, dynamic> entry,
-  }) async {
-    List<Map<String, dynamic>> list = _load(prefs.getString(key));
-    list.add(entry);
-    if (list.length > _rollingWindow) {
-      list = list.sublist(list.length - _rollingWindow);
-    }
-    await prefs.setString(key, json.encode(list));
-  }
-
-  /// Recomputes the average delay from [historyKey] and writes it to
-  /// [bufferKey]. Writes 0 if fewer than [_minDataPoints] entries exist.
-  static Future<void> _recomputeBuffer(
-    SharedPreferences prefs, {
-    required String historyKey,
-    required String bufferKey,
-    required String label,
-  }) async {
-    final list = _load(prefs.getString(historyKey));
-
-    if (list.length < _minDataPoints) {
-      debugPrint('[LEARN] $label: ${list.length}/$_minDataPoints points — buffer unchanged');
-      // Don't write 0 here: preserve any previously computed value until
-      // enough new data arrives to overwrite it.
-      return;
-    }
-
-    final delays = list
-        .map((e) => (e['delayMinutes'] as num).toInt())
-        .toList();
-
-    final avg = delays.reduce((a, b) => a + b) / delays.length;
-
-    // Clamp to [0, _maxAdaptiveBuffer]. Negative averages (user consistently
-    // early) don't reduce the base buffer — the traffic API already handles
-    // that; we just don't add unnecessary time.
-    final buffer = avg.round().clamp(0, _maxAdaptiveBuffer);
-
-    await prefs.setInt(bufferKey, buffer);
-    debugPrint('[LEARN] $label buffer updated | '
-        'window=${list.length} | avgDelay=${avg.toStringAsFixed(1)} min | buffer=$buffer min');
-  }
 
   static List<Map<String, dynamic>> _load(String? raw) {
     if (raw == null) return [];

@@ -17,7 +17,8 @@ class CommuteCard extends StatelessWidget {
   final VoidCallback onDoubleTap;
   final VoidCallback onDirections;
   final VoidCallback onFavoriteToggle;
-  final Future<void> Function()? onDisableToday;
+  final Future<void> Function()? onToggleToday;
+  final bool isDisabledToday;
   final String? weatherEmoji;
   final bool isFavorite;
 
@@ -34,7 +35,8 @@ class CommuteCard extends StatelessWidget {
     required this.onDirections,
     required this.onFavoriteToggle,
     required this.weatherEmoji,
-    this.onDisableToday,
+    this.onToggleToday,
+    this.isDisabledToday = false,
     this.isFavorite = false,
   });
 
@@ -56,7 +58,7 @@ class CommuteCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: bgColor,
           borderRadius: ReachStyles.cardRadius,
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
         ),
         child: Column(
           children: [
@@ -124,7 +126,13 @@ class CommuteCard extends StatelessWidget {
             ],
           ),
           Text(
-            'Arrive $arriveBy • ${_formatDays()}',
+            'Arrive $arriveBy',
+            style: TextStyle(color: Colors.grey[600], fontSize: 11),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            _formatDays(),
             style: TextStyle(color: Colors.grey[600], fontSize: 11),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -157,10 +165,10 @@ class CommuteCard extends StatelessWidget {
   Widget _buildBottomRow(bool isDark, Color color) {
     // Show the × disable-today button only when today is a scheduled day
     // (or the commute has no recurring days — i.e. it's a one-shot/today commute).
-    const List<String> _weekdayNames = [
+    const List<String> weekdayNames = [
       'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun',
     ];
-    final String todayName = _weekdayNames[DateTime.now().weekday - 1];
+    final String todayName = weekdayNames[DateTime.now().weekday - 1];
     final bool isToday = days.isEmpty || days.contains(todayName);
 
     return Row(
@@ -179,30 +187,38 @@ class CommuteCard extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // × Disable today button — only visible for today's commutes
-            if (isToday && onDisableToday != null)
+            // Toggle: silence today's alarm, tap again to undo.
+            if (isToday && onToggleToday != null)
               Builder(
                 builder: (ctx) => GestureDetector(
+                  behavior: HitTestBehavior.opaque,
                   onTap: () async {
                     HapticFeedback.mediumImpact();
-                    await onDisableToday!();
+                    final wasDisabled = isDisabledToday;
+                    await onToggleToday!();
                     if (ctx.mounted) {
                       ScaffoldMessenger.of(ctx)
                         ..clearSnackBars()
                         ..showSnackBar(
                           SnackBar(
-                            content: Text('"$title" alarm disabled for today.'),
+                            content: Text(wasDisabled
+                                ? '"$title" alarm re-enabled for today.'
+                                : '"$title" alarm disabled for today.'),
                             duration: const Duration(seconds: 3),
                           ),
                         );
                     }
                   },
                   child: Padding(
-                    padding: const EdgeInsets.only(right: 10),
+                    padding: const EdgeInsets.fromLTRB(8, 8, 10, 8),
                     child: Icon(
-                      Icons.notifications_off_outlined,
-                      size: 16,
-                      color: Colors.grey[500],
+                      isDisabledToday
+                          ? Icons.notifications_off
+                          : Icons.notifications_active_outlined,
+                      size: 18,
+                      color: isDisabledToday
+                          ? ReachStyles.accentRed
+                          : ReachStyles.primaryOrange,
                     ),
                   ),
                 ),
@@ -213,7 +229,7 @@ class CommuteCard extends StatelessWidget {
                 onDirections();
               },
               style: TextButton.styleFrom(
-                backgroundColor: ReachStyles.primaryOrange.withOpacity(0.1),
+                backgroundColor: ReachStyles.primaryOrange.withValues(alpha: 0.1),
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),

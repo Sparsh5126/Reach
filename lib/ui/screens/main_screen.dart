@@ -13,6 +13,7 @@ import '../../services/calendar_service.dart';
 import '../../services/commute_history_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/traffic_service.dart';
+import '../../services/travel_engine.dart';
 import '../../services/weather_service.dart';
 
 import '../styles.dart';
@@ -20,7 +21,7 @@ import '../widgets/sliding_nav_bar.dart';
 import '../widgets/privacy_dialog.dart';
 import 'home_view.dart';
 import 'add_edit_sheet.dart';
-import 'alarm_screen.dart';
+import 'time_breakdown_sheet.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -34,33 +35,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   String? _userName;
   bool _ready = false;
   Position? _currentPosition;
+  double? _savedLat;
+  double? _savedLon;
   List<String> _ignoredEventIds = [];
-  StreamSubscription<String?>? _notificationSub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initApp();
-    _listenToNotifications();
   }
 
-  void _listenToNotifications() {
-    _notificationSub = NotificationService().payloadStream.stream.listen((
-      payload,
-    ) {
-      if (payload == 'ALARM' && mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => AlarmScreen(payload: payload!)),
-        );
-      }
-    });
-  }
+  // Alarm payloads are routed to AlarmScreen in main.dart (_ReachAppState).
 
   @override
   void dispose() {
-    _notificationSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -84,20 +73,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     final prefs = await SharedPreferences.getInstance();
     _userName = prefs.getString('user_name');
+    _savedLat = prefs.getDouble('last_known_lat');
+    _savedLon = prefs.getDouble('last_known_lon');
     if (!(prefs.getBool('user_name_prompted') ?? false) && _userName == null) {
       await WidgetsBinding.instance.endOfFrame;
       await _showNamePrompt(prefs);
       await Future<void>.delayed(const Duration(milliseconds: 300));
     }
-    if (!mounted) return;
     final hasAcceptedPrivacy = prefs.getBool('has_accepted_privacy') ?? false;
 
     if (!hasAcceptedPrivacy) {
+      await Future.delayed(Duration.zero);
       if (mounted) {
-        await Future.delayed(Duration.zero);
         await PrivacyDialog.show(context);
-        await prefs.setBool('has_accepted_privacy', true);
       }
+      await prefs.setBool('has_accepted_privacy', true);
     }
 
     try {
@@ -107,18 +97,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     try {
+      // Calendar is deliberately not requested here. CalendarService.
+      // getUpcomingTravelEvents() already calls device_calendar's own
+      // requestPermissions() at the point of use, so asking at cold start
+      // only added a prompt before the user has any context for it — and
+      // Permission.calendar is itself deprecated in permission_handler 11.
       await [
         Permission.locationWhenInUse,
         Permission.systemAlertWindow,
-        Permission.calendar,
       ].request();
     } catch (e) {
       debugPrint("Permission request error: $e");
     }
 
     await _determinePosition();
-    if (!mounted) return;
-    setState(() => _ready = true);
+    _ready = true;
+    if (mounted) setState(() {});
 
     // Initial Silent Refresh on app start
     _refreshAllAlarms();
@@ -138,6 +132,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       desiredAccuracy: LocationAccuracy.medium,
     );
     if (mounted) setState(() => _currentPosition = pos);
+
+    // Persist for fallback when GPS is unavailable on next launch
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('last_known_lat', pos.latitude);
+    await prefs.setDouble('last_known_lon', pos.longitude);
+    _savedLat = pos.latitude;
+    _savedLon = pos.longitude;
   }
 
   Future<void> _loadData() async {
@@ -239,28 +240,42 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     debugPrint(
       '[SCHED] Starting silent refresh for ${myCommutes.length} commutes...',
     );
-    for (final c in myCommutes) {
-      try {
-        await _updateCommuteAlarms(c);
-      } catch (e) {
-        debugPrint(
-          '[SCHED] Silent refresh failed for "${c.customTitle ?? c.title}": $e',
-        );
-      }
-    }
+    // Refreshed concurrently rather than one commute at a time. Each pass is
+    // dominated by a routing round trip, and the passes are independent:
+    // _updateCommuteAlarms only *reads* SharedPreferences and schedules under
+    // notification IDs derived from the commute id, so nothing is shared. The
+    // weather lookups all collapse onto one request via WeatherService's cache,
+    // which dedupes in-flight calls. Sequentially this window grew with the
+    // number of commutes, leaving the later ones on stale alarms for longer.
+    //
+    // Each future keeps its own error handling so one failure cannot cancel
+    // the rest of the refresh.
+    await Future.wait(
+      myCommutes.map((c) async {
+        try {
+          await _updateCommuteAlarms(c);
+        } catch (e) {
+          debugPrint(
+            '[SCHED] Silent refresh failed for "${c.customTitle ?? c.title}": $e',
+          );
+        }
+      }),
+    );
     debugPrint('[SCHED] Silent refresh complete.');
   }
 
   Future<void> _updateCommuteAlarms(Commute c) async {
     if (!_ready) return;
 
-    double startLat = _currentPosition?.latitude ?? c.lat;
-    double startLon = _currentPosition?.longitude ?? c.lon;
+    // Origin only — see the note in HomeView's card builder for why c.lat/c.lon
+    // must not be the tail of this chain.
+    final double startLat = _currentPosition?.latitude ?? _savedLat ?? 0.0;
+    final double startLon = _currentPosition?.longitude ?? _savedLon ?? 0.0;
 
     // Fetch live data (TrafficService handles 5-min caching internally)
     final results = await Future.wait([
       WeatherService().getWeatherInfo(startLat, startLon),
-      TrafficService().getAdjustedTravelDuration(
+      TrafficService().getMapplsDuration(
         startLat,
         startLon,
         c.eLoc,
@@ -271,31 +286,20 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     ]);
 
     double rainFactor = ((results[0] as Map)['factor'] as num).toDouble();
-    int trafficBuffer = results[1] as int;
+    final trafficResult = results[1] as TrafficResult;
+    int trafficBuffer = trafficResult.duration;
 
-    // Apply personalized buffer learned from past commute history.
-    final int learnedBuffer = await CommuteHistoryService.getLearnedBuffer(
-      c.id,
-    );
-    if (learnedBuffer > 0) {
-      debugPrint(
-        '[SCHED] Applying learned buffer: +$learnedBuffer min for "${c.customTitle ?? c.title}"',
-      );
-      trafficBuffer += learnedBuffer;
-    }
-
-    // Use the raw DateTime version to preserve full date context.
-    final times = TrafficService().calculateSmartTimesRaw(
-      c.title,
-      c.time,
-      trafficBuffer,
-      rainFactor,
-      c.mode,
+    // Use the TravelEngine to compute all times
+    final prediction = await TravelEngine.compute(
+      commute: c,
+      mapplsDuration: trafficBuffer,
+      rainFactor: rainFactor,
+      isFallback: trafficResult.isFallback,
     );
 
-    final DateTime leaveTime = times['leave']!;
-    final DateTime readyTime = times['ready']!;
-    final DateTime arriveTime = times['arrive']!;
+    final DateTime leaveTime = prediction.leaveBy;
+    final DateTime readyTime = prediction.readyAt;
+    final DateTime arriveTime = prediction.arriveAt;
     final bool isRaining = rainFactor > 1.0;
 
     final int baseId = _stableNotifId(c.id);
@@ -343,6 +347,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     // 1. LEAVE ALARMS (0..6)
     await NotificationService().scheduleLeaveAlarm(
       baseId,
+      c.id,
+      c.mode,
       leaveTime,
       days: scheduleDays,
       isRaining: isRaining,
@@ -362,6 +368,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     await NotificationService().scheduleCheckinNotification(
       baseId,
       c.id,
+      c.mode,
       checkinFireAt,
       arriveTime,
       days: scheduleDays,
@@ -430,6 +437,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     debugPrint('[SCHED] Disabled today\'s alarms for "${c.customTitle ?? c.title}"');
   }
 
+  /// Undo of [_disableTodaysAlarm]: clears the flag and re-schedules alarms.
+  Future<void> _enableTodaysAlarm(Commute c) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('reach_disabled_today_${c.id}');
+    try {
+      await _updateCommuteAlarms(c);
+    } catch (e) {
+      debugPrint('[SCHED] Failed to re-enable alarms for "${c.customTitle ?? c.title}": $e');
+    }
+  }
+
   /// Cancels today's alarms for ALL commutes and stores a global date-keyed flag.
   Future<void> _disableAllAlarmsToday() async {
     final String today = DateTime.now().toIso8601String().substring(0, 10);
@@ -489,7 +507,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       builder: (context) => Container(
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+          color: isDark ? ReachStyles.dynamicDarkCard : ReachStyles.lightCard,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
         ),
         child: Column(
@@ -499,7 +517,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey[600],
+                color: isDark ? Colors.white24 : Colors.black26,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -515,9 +533,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 20),
             Text(
-              "New Event Detected",
+              "New event detected from your calendar",
               style: TextStyle(
-                color: isDark ? Colors.grey : Colors.grey[600],
+                color: isDark ? Colors.white54 : Colors.black45,
                 fontSize: 14,
               ),
             ),
@@ -525,10 +543,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             Text(
               event.title,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                color: isDark ? Colors.white : Colors.black,
+              style: ReachStyles.heading.copyWith(
+                color: isDark ? ReachStyles.darkText : ReachStyles.lightText,
                 fontSize: 22,
-                fontWeight: FontWeight.bold,
               ),
             ),
             const SizedBox(height: 8),
@@ -546,8 +563,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     event.location,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isDark ? Colors.grey[300] : Colors.grey[800],
+                    style: ReachStyles.cardTitle.copyWith(
+                      color: isDark ? ReachStyles.darkText.withOpacity(0.7) : ReachStyles.lightText.withOpacity(0.6),
+                      fontWeight: FontWeight.normal,
                     ),
                   ),
                 ),
@@ -563,9 +581,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       _ignoreEvent(event.eventId);
                       Navigator.pop(context);
                     },
-                    child: const Text(
+                    child: Text(
                       "Ignore",
-                      style: TextStyle(color: Colors.grey),
+                      style: TextStyle(
+                        color: isDark ? Colors.white38 : Colors.black38,
+                      ),
                     ),
                   ),
                 ),
@@ -747,6 +767,78 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _showTimeBreakdown(Commute c, [TravelPrediction? prediction]) async {
+    if (prediction == null) {
+      // Fallback: Show a loading indicator in the sheet while we calculate.
+      // Tracked because the pop below must only ever close THIS sheet: if the
+      // user swipes the loader away (or backs out) while the fetch is in
+      // flight, an unconditional pop would dismiss the screen underneath it.
+      bool loaderClosed = false;
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.transparent,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      ).whenComplete(() => loaderClosed = true);
+
+      // Origin only — never the commute's own coordinates (see _updateCommuteAlarms).
+      final double startLat = _currentPosition?.latitude ?? _savedLat ?? 0.0;
+      final double startLon = _currentPosition?.longitude ?? _savedLon ?? 0.0;
+
+      try {
+        final results = await Future.wait([
+          WeatherService().getWeatherInfo(startLat, startLon),
+          TrafficService().getMapplsDuration(
+            startLat,
+            startLon,
+            c.eLoc,
+            destLat: c.lat,
+            destLon: c.lon,
+            mode: c.mode,
+          ),
+        ]);
+
+        final rainFactor = ((results[0] as Map)['factor'] as num).toDouble();
+        final trafficResult = results[1] as TrafficResult;
+
+        prediction = await TravelEngine.compute(
+          commute: c,
+          mapplsDuration: trafficResult.duration,
+          rainFactor: rainFactor,
+          isFallback: trafficResult.isFallback,
+        );
+
+        if (mounted && !loaderClosed) {
+          Navigator.pop(context); // close loading
+        }
+      } catch (e) {
+        if (mounted) {
+          if (!loaderClosed) Navigator.pop(context); // close loading
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Failed to calculate time breakdown.")),
+          );
+        }
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    // Copied to a final local: `prediction` is a mutable parameter, so its
+    // non-null promotion does not reach inside the builder closure below —
+    // which is the only reason that read needed a `!`.
+    final resolved = prediction;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => TimeBreakdownSheet(
+        title: c.customTitle ?? c.title,
+        arriveBy: c.time,
+        prediction: resolved,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -762,10 +854,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     onEdit: _editCommute,
                     onDelete: _deleteCommute,
                     onUndo: _handleUndo,
+                    onTap: _showTimeBreakdown,
                     onNavigate: _openMapPicker,
                     onFavoriteToggle: _toggleFavorite,
                     onDisableAllToday: _disableAllAlarmsToday,
                     onDisableToday: _disableTodaysAlarm,
+                    onEnableToday: _enableTodaysAlarm,
                   )
                 : AddEditSheet(
                     isSheet: false,

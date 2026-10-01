@@ -25,12 +25,19 @@ class _AddEditSheetState extends State<AddEditSheet> {
   bool _isPickup = false;
   List<String> _selectedDays = [];
   bool _isFavorite = false;
+  int _safetyBufferMinutes = 5;
   List<LocationResult> _suggestions = [];
   bool _isSearching = false;
   Timer? _debounce;
   double? _lat;
   double? _lon;
   String? _eLoc;
+
+  // Single source of truth for the mode <-> _selectedMode index mapping.
+  // Index order must match the _ModeTile row in _buildModeSelector below.
+  // This used to be two hand-written if/else chains — one decoding, one
+  // encoding — which is exactly the shape that drifts when a mode is added.
+  static const List<String> _modeKeys = ['car', 'motorcycle', 'train', 'flight'];
 
   final List<String> _weekDays = ["M", "T", "W", "T", "F", "S", "S"];
   final List<String> _fullDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -41,13 +48,22 @@ class _AddEditSheetState extends State<AddEditSheet> {
     _initializeData();
   }
 
+  @override
+  void dispose() {
+    // The sheet is dismissed while a search debounce is often still pending.
+    // Without this cancel the timer survives the State, fires a needless
+    // Places API call, and then setState()s a defunct widget.
+    _debounce?.cancel();
+    _titleController.dispose();
+    _destinationController.dispose();
+    super.dispose();
+  }
+
   void _initializeData() {
-    if (widget.existingCommute != null) {
-      final m = widget.existingCommute!.mode;
-      if (m == 'motorcycle') _selectedMode = 1;
-      else if (m == 'train') _selectedMode = 2;
-      else if (m == 'flight') _selectedMode = 3;
-      else _selectedMode = 0;
+    final existingMode = widget.existingCommute?.mode;
+    if (existingMode != null) {
+      final i = _modeKeys.indexOf(existingMode);
+      _selectedMode = i < 0 ? 0 : i; // unknown/legacy mode -> car
     }
 
     String initialTitle = widget.existingCommute?.title ?? "";
@@ -56,11 +72,18 @@ class _AddEditSheetState extends State<AddEditSheet> {
     double? initialLon = widget.existingCommute?.lon;
 
     if (initialELoc == null && initialTitle.contains(',')) {
-      List<String> parts = initialTitle.split(',').map((s) => s.trim()).toList();
-      if (parts.isNotEmpty && parts.last.toLowerCase() == 'india') parts.removeLast();
-      if (parts.isNotEmpty && RegExp(r'^\d+$').hasMatch(parts.last)) parts.removeLast();
-      if (parts.length >= 3) initialTitle = "${parts.first}, ${parts[parts.length - 2]}";
-      else if (parts.isNotEmpty) initialTitle = parts.first;
+      final parts = initialTitle.split(',').map((s) => s.trim()).toList();
+      if (parts.isNotEmpty && parts.last.toLowerCase() == 'india') {
+        parts.removeLast();
+      }
+      if (parts.isNotEmpty && RegExp(r'^\d+$').hasMatch(parts.last)) {
+        parts.removeLast();
+      }
+      if (parts.length >= 3) {
+        initialTitle = "${parts.first}, ${parts[parts.length - 2]}";
+      } else if (parts.isNotEmpty) {
+        initialTitle = parts.first;
+      }
     }
 
     _titleController = TextEditingController(text: widget.existingCommute?.customTitle ?? "");
@@ -71,6 +94,7 @@ class _AddEditSheetState extends State<AddEditSheet> {
     _lon = initialLon;
     _eLoc = initialELoc;
     _isFavorite = widget.existingCommute?.isFavorite ?? false;
+    _safetyBufferMinutes = widget.existingCommute?.safetyBufferMinutes ?? 5;
   }
 
   void _onSearchChanged(String query) {
@@ -80,9 +104,14 @@ class _AddEditSheetState extends State<AddEditSheet> {
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 600), () async {
+      if (!mounted) return;
       setState(() => _isSearching = true);
       final results = await LocationService.searchPlaces(query);
-      if (mounted) setState(() { _suggestions = results; _isSearching = false; });
+      if (!mounted) return;
+      setState(() {
+        _suggestions = results;
+        _isSearching = false;
+      });
     });
   }
 
@@ -113,20 +142,16 @@ class _AddEditSheetState extends State<AddEditSheet> {
     
     HapticFeedback.mediumImpact();
 
-    String modeStr = 'car';
-    if (_selectedMode == 1) modeStr = 'motorcycle';
-    else if (_selectedMode == 2) modeStr = 'train';
-    else if (_selectedMode == 3) modeStr = 'flight';
-
     widget.onSave(Commute(
       id: widget.existingCommute?.id ?? const Uuid().v4(),
       title: _destinationController.text,
       customTitle: _titleController.text.isEmpty ? null : _titleController.text,
       time: _selectedTime.format(context),
-      mode: modeStr,
+      mode: _modeKeys[_selectedMode],
       days: _selectedDays,
       lat: _lat ?? 0.0, lon: _lon ?? 0.0, eLoc: _eLoc,
       isFavorite: _isFavorite,
+      safetyBufferMinutes: _safetyBufferMinutes,
     ));
   }
 
@@ -135,7 +160,7 @@ class _AddEditSheetState extends State<AddEditSheet> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? ReachStyles.darkText : ReachStyles.lightText;
     final Color inputColor = isDark ? Theme.of(context).cardColor : Colors.grey[100]!;
-    final Color borderColor = isDark ? Colors.white.withOpacity(0.05) : Colors.transparent;
+    final Color borderColor = isDark ? Colors.white.withValues(alpha: 0.05) : Colors.transparent;
 
     Widget content = SingleChildScrollView(
       child: Column(
@@ -157,6 +182,8 @@ class _AddEditSheetState extends State<AddEditSheet> {
           _buildSuggestionsList(textColor, isDark, inputColor),
           const SizedBox(height: 24),
           _buildDaySelector(inputColor),
+          const SizedBox(height: 24),
+          _buildSafetyBufferSelector(textColor, inputColor),
           const SizedBox(height: 24),
           _buildActionButtons(textColor, inputColor),
           const SizedBox(height: 20),
@@ -224,6 +251,7 @@ class _AddEditSheetState extends State<AddEditSheet> {
   }
 
   Widget _buildPickupToggle(Color textColor, Color inputColor) {
+    final IconData tripIcon = _selectedMode == 2 ? Icons.train : Icons.flight_takeoff;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(color: inputColor, borderRadius: BorderRadius.circular(16)),
@@ -232,7 +260,7 @@ class _AddEditSheetState extends State<AddEditSheet> {
         children: [
           Row(
             children: [
-              Icon(_isPickup ? Icons.person_pin_circle : Icons.flight_takeoff, color: ReachStyles.primaryOrange, size: 20),
+              Icon(_isPickup ? Icons.person_pin_circle : tripIcon, color: ReachStyles.primaryOrange, size: 20),
               const SizedBox(width: 12),
               Text(_isPickup ? "Picking someone up" : "Catching the trip", style: TextStyle(color: textColor, fontSize: 14)),
             ],
@@ -243,7 +271,7 @@ class _AddEditSheetState extends State<AddEditSheet> {
                HapticFeedback.lightImpact();
                setState(() => _isPickup = val);
             },
-            activeColor: ReachStyles.primaryOrange,
+            activeThumbColor: ReachStyles.primaryOrange,
           ),
         ],
       ),
@@ -377,6 +405,88 @@ class _AddEditSheetState extends State<AddEditSheet> {
       }
     } catch (_) {}
     return null;
+  }
+
+  Widget _buildSafetyBufferSelector(Color textColor, Color inputColor) {
+    final bool isTransitMode = _selectedMode >= 2; // train or flight
+    final List<int> bufferOptions = isTransitMode
+        ? [0, 5, 10, 15, 20, 30, 45, 60, 75, 90, 105, 120]
+        : [0, 5, 10, 15, 20, 25, 30];
+
+    // Ensure selected buffer value exists in options
+    final int effectiveValue = bufferOptions.contains(_safetyBufferMinutes)
+        ? _safetyBufferMinutes
+        : bufferOptions.firstWhere((opt) => opt >= _safetyBufferMinutes, orElse: () => bufferOptions.last);
+
+    String formatBuffer(int min) {
+      if (min == 0) return "0 min";
+      if (min < 60) return "$min min";
+      final hours = min ~/ 60;
+      final remainingMins = min % 60;
+      if (remainingMins == 0) return "$hours hr";
+      return "$hours hr $remainingMins min";
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(color: inputColor, borderRadius: BorderRadius.circular(16)),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.security, color: ReachStyles.primaryOrange, size: 20),
+              const SizedBox(width: 12),
+              Text("Safety Buffer", style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(4),
+                constraints: const BoxConstraints(),
+                tooltip: 'What is a safety buffer?',
+                icon: Icon(Icons.info_outline, size: 18, color: Colors.grey[500]),
+                onPressed: () {
+                  HapticFeedback.selectionClick();
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Safety Buffer', style: TextStyle(fontWeight: FontWeight.bold)),
+                      content: const Text(
+                        'Extra time added on top of the estimated travel time, so small delays '
+                        '(parking, a red light, a missed turn) don\'t make you late. '
+                        'A bigger buffer means an earlier "Leave by" time.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Got it', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+          DropdownButton<int>(
+            value: effectiveValue,
+            dropdownColor: inputColor,
+            underline: const SizedBox(),
+            items: bufferOptions.map((int value) {
+              return DropdownMenuItem<int>(
+                value: value,
+                child: Text(formatBuffer(value), style: TextStyle(color: textColor)),
+              );
+            }).toList(),
+            onChanged: (int? newValue) {
+              if (newValue != null) {
+                HapticFeedback.selectionClick();
+                setState(() => _safetyBufferMinutes = newValue);
+              }
+            },
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -43,10 +43,16 @@
         </intent>
     </queries>
 
+    <!-- Auto Backup defaults to true, which silently restores this app's
+         SharedPreferences (including the saved "commutes" list) from a
+         prior install on the same Google account — making a fresh install
+         look like it ships with demo commutes when it's really just
+         restoring the last uninstalled copy's data. -->
     <application
         android:label="Reach."
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false">
 
         <activity
             android:name=".MainActivity"

@@ -9,6 +9,7 @@ class Commute {
   final double lon;
   final String? eLoc;
   final bool isFavorite;     // Pin to top
+  final int safetyBufferMinutes; // Per-commute safety buffer
 
   Commute({
     required this.id,
@@ -21,6 +22,7 @@ class Commute {
     required this.lon,
     this.eLoc,
     this.isFavorite = false,
+    this.safetyBufferMinutes = 5,
   });
 
   // Convert to Map for saving
@@ -36,6 +38,7 @@ class Commute {
       'lon': lon,
       'eLoc': eLoc,
       'isFavorite': isFavorite ? 1 : 0, // Save boolean as int
+      'safetyBufferMinutes': safetyBufferMinutes,
     };
   }
 
@@ -52,6 +55,7 @@ class Commute {
       lon: (map['lon'] as num?)?.toDouble() ?? 0.0,
       eLoc: map['eLoc']?.toString(),
       isFavorite: map['isFavorite'] == 1 || map['isFavorite'] == true, 
+      safetyBufferMinutes: map['safetyBufferMinutes'] as int? ?? 5,
     );
   }
 
@@ -66,6 +70,7 @@ class Commute {
     double? lon,
     String? eLoc,
     bool? isFavorite,
+    int? safetyBufferMinutes,
   }) {
     return Commute(
       id: id,
@@ -78,6 +83,7 @@ class Commute {
       lon: lon ?? this.lon,
       eLoc: eLoc ?? this.eLoc,
       isFavorite: isFavorite ?? this.isFavorite,
+      safetyBufferMinutes: safetyBufferMinutes ?? this.safetyBufferMinutes,
     );
   }
 
