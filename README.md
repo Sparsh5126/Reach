@@ -56,16 +56,18 @@ Reach is a smart commute assistant built with Flutter. Unlike standard alarms, R
 
 <table>
   <tr>
-    <td><img src="./screenshots/01-home.png" width="180" alt="Home" /></td>
-    <td><img src="./screenshots/02-breakdown.png" width="180" alt="Breakdown" /></td>
-    <td><img src="./screenshots/03-addtrip.png" width="180" alt="Add Trip" /></td>
-    <td><img src="./screenshots/04-editpage.png" width="180" alt="Edit Page" /></td>
-    <td><img src="./screenshots/05-mapapps.png" width="180" alt="Map Apps" /></td>
-    <td><img src="./screenshots/06-themegreen.png" width="180" alt="Green Theme" /></td>
-    <td><img src="./screenshots/07-themenavy.png" width="180" alt="Navy Theme" /></td>
-    <td><img src="./screenshots/08-themewhite.png" width="180" alt="White Theme" /></td>
-    <td><img src="./screenshots/09-addtripwhite.png" width="180" alt="Add Trip (Light)" /></td>
-    <td><img src="./screenshots/10-privacy.png" width="180" alt="Privacy" /></td>
+    <td><img src="./screenshots/01-home.png" width="280" alt="Home" /></td>
+    <td><img src="./screenshots/02-breakdown.png" width="280" alt="Breakdown" /></td>
+    <td><img src="./screenshots/03-addtrip.png" width="280" alt="Add Trip" /></td>
+    <td><img src="./screenshots/04-editpage.png" width="280" alt="Edit Page" /></td>
+    <td><img src="./screenshots/05-mapapps.png" width="280" alt="Map Apps" /></td>
+  </tr>
+  <tr>
+    <td><img src="./screenshots/06-themegreen.png" width="280" alt="Green Theme" /></td>
+    <td><img src="./screenshots/07-themenavy.png" width="280" alt="Navy Theme" /></td>
+    <td><img src="./screenshots/08-themewhite.png" width="280" alt="White Theme" /></td>
+    <td><img src="./screenshots/09-addtripwhite.png" width="280" alt="Add Trip (Light)" /></td>
+    <td><img src="./screenshots/10-privacy.png" width="280" alt="Privacy" /></td>
   </tr>
 </table>
 
