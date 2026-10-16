@@ -2,6 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class SlidingNavBar extends StatelessWidget {
+  // Pill and label colour share one timing so the text never turns white
+  // before the pill is underneath it. The curve must not overshoot: the Stack
+  // clips to its bounds, so an overshooting curve (e.g. easeInOutBack) gets
+  // its pill sliced flat at the edges.
+  static const _duration = Duration(milliseconds: 300);
+  static const _curve = Curves.easeOutCubic;
+
   final int selectedIndex;
   final Function(int) onTabChange;
 
@@ -61,8 +68,8 @@ class SlidingNavBar extends StatelessWidget {
             children: [
               // --- THE MOVING ORANGE PILL ---
               AnimatedPositioned(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOutBack,
+                duration: _duration,
+                curve: _curve,
                 top: 0,
                 bottom: 0,
                 left: selectedIndex == 0 ? 0 : pillWidth,
@@ -100,6 +107,7 @@ class SlidingNavBar extends StatelessWidget {
     bool isSelected = selectedIndex == index;
     return GestureDetector(
       onTap: () {
+        if (isSelected) return;
         HapticFeedback.lightImpact();
         onTabChange(index);
       },
@@ -109,7 +117,8 @@ class SlidingNavBar extends StatelessWidget {
         height: height,
         child: Center(
           child: AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 200),
+            duration: _duration,
+            curve: _curve,
             style: TextStyle(
               color: isSelected ? Colors.white : unselectedColor,
               fontWeight: FontWeight.bold,
